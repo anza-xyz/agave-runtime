@@ -84,6 +84,7 @@ pub struct FeatureSnapshot {
     pub enable_tx_v1: bool,
     pub define_ltds_fee_only_semantics: bool,
     pub upgrade_bpf_stake_program_to_v5_1: bool,
+    pub program_runtime_abiv2: bool,
 }
 
 impl From<&AHashMap<Pubkey, u64>> for FeatureSnapshot {
@@ -188,6 +189,7 @@ impl From<&AHashMap<Pubkey, u64>> for FeatureSnapshot {
             enable_tx_v1: is_active(&enable_tx_v1::ID),
             define_ltds_fee_only_semantics: is_active(&define_ltds_fee_only_semantics::ID),
             upgrade_bpf_stake_program_to_v5_1: is_active(&upgrade_bpf_stake_program_to_v5_1::ID),
+            program_runtime_abiv2: is_active(&program_runtime_abiv2::ID),
         }
     }
 }
@@ -348,6 +350,7 @@ impl FeatureSet {
             enable_sha512_syscall: snapshot.enable_sha512_syscall,
             relax_post_exec_min_balance_check: snapshot.relax_post_exec_min_balance_check,
             define_ltds_fee_only_semantics: snapshot.define_ltds_fee_only_semantics,
+            program_runtime_abiv2: snapshot.program_runtime_abiv2,
         }
     }
 }
@@ -1502,6 +1505,9 @@ pub mod set_lamports_per_byte_to_6960 {
 
     pub const LAMPORTS_PER_BYTE: u64 = 6960;
 }
+pub mod program_runtime_abiv2 {
+    solana_pubkey::declare_id!("AB1v2ExperimentaL111111111111111111111111111");
+}
 
 pub mod reduce_slot_time_to_350ms {
     solana_pubkey::declare_id!("iBRL5RuWhw4yqaAZu96RUULHckHTZAoe2b77qaV38JZ");
@@ -2608,6 +2614,10 @@ pub static FEATURE_NAMES: LazyLock<AHashMap<Pubkey, &'static str>> = LazyLock::n
         (
             alpenglow_fast_leader_handover::id(),
             "SIMD-0326: Alpenglow fast leader handover",
+        ),
+        (
+            program_runtime_abiv2::id(),
+            "SIMD-0177: Program runtime ABIv2",
         ),
         /*************** ADD NEW FEATURES HERE ***************/
         /***** ADD NEW FEATURE BOOL TO `FeatureSnapshot` *****/
