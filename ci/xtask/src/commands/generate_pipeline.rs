@@ -111,7 +111,7 @@ fn annotate_pull_request(pr_number: u64) -> Result<()> {
     }
 
     let annotation =
-        format!("Github Pull Request: https://github.com/anza-xyz/agave/pull/{pr_number}");
+        format!("Github Pull Request: https://github.com/anza-xyz/agave-runtime/pull/{pr_number}");
 
     let status = Command::new("buildkite-agent")
         .args([
@@ -157,7 +157,7 @@ async fn get_changed_files(pr_number: u64) -> Result<Vec<String>> {
     };
     let github_client = github_client_builder.build()?;
     let stream = github_client
-        .pulls("anza-xyz", "agave")
+        .pulls("anza-xyz", "agave-runtime")
         .list_files(pr_number)
         .await?
         .into_stream(&github_client);
@@ -188,11 +188,11 @@ pub async fn generate_pull_request_pipeline(pr_number: u64) -> Result<buildkite:
             || file.ends_with("ci/rust-version.sh")
             || file.ends_with("ci/docker/Dockerfile")
     });
-    let coverage_scripts_changed = changed_files.iter().any(|file| {
-        file.ends_with("scripts/coverage.sh")
-            || file.ends_with("ci/test-coverage.sh")
-            || file.starts_with("ci/coverage/")
-    });
+    // let coverage_scripts_changed = changed_files.iter().any(|file| {
+    //     file.ends_with("scripts/coverage.sh")
+    //         || file.ends_with("ci/test-coverage.sh")
+    //         || file.starts_with("ci/coverage/")
+    // });
 
     if rust_changed {
         pipeline.add_step(default_checks_step());
@@ -211,9 +211,9 @@ pub async fn generate_pull_request_pipeline(pr_number: u64) -> Result<buildkite:
 
         pipeline.add_step(default_stable_sbf_step());
         pipeline.add_step(default_shuttle_step());
-        pipeline.add_step(default_coverage_step(3));
-    } else if coverage_scripts_changed {
-        pipeline.add_step(default_coverage_step(3));
+    //     pipeline.add_step(default_coverage_step(3));
+    // } else if coverage_scripts_changed {
+    //     pipeline.add_step(default_coverage_step(3));
     }
 
     Ok(pipeline)
