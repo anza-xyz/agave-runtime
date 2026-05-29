@@ -111,7 +111,7 @@ fn annotate_pull_request(pr_number: u64) -> Result<()> {
     }
 
     let annotation =
-        format!("Github Pull Request: https://github.com/anza-xyz/agave/pull/{pr_number}");
+        format!("Github Pull Request: https://github.com/anza-xyz/agave-runtime/pull/{pr_number}");
 
     let status = Command::new("buildkite-agent")
         .args([
@@ -157,7 +157,7 @@ async fn get_changed_files(pr_number: u64) -> Result<Vec<String>> {
     };
     let github_client = github_client_builder.build()?;
     let stream = github_client
-        .pulls("anza-xyz", "agave")
+        .pulls("anza-xyz", "agave-runtime")
         .list_files(pr_number)
         .await?
         .into_stream(&github_client);
@@ -280,13 +280,7 @@ impl PullRequestPipelineFlags {
                 || changed_files
                     .iter()
                     .any(|file| file.ends_with("ci/test-shuttle.sh")),
-            coverage: trigger_all
-                || rust_changed
-                || changed_files.iter().any(|file| {
-                    file.ends_with("scripts/coverage.sh")
-                        || file.ends_with("ci/test-coverage.sh")
-                        || file.starts_with("ci/coverage/")
-                }),
+            coverage: false,
         }
     }
 }
