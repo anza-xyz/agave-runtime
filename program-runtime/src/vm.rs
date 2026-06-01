@@ -18,6 +18,7 @@ use {
         elf::Executable,
         error::{EbpfError, ProgramResult},
         memory_region::{AccessType, MemoryMapping, MemoryRegion},
+        program::SBPFVersion,
         vm::{ContextObject, EbpfVm, ExecutionMode},
     },
     solana_sdk_ids::bpf_loader_deprecated,
@@ -205,7 +206,7 @@ pub fn execute<'a, 'b: 'a>(
     let direct_account_pointers_in_program_input = invoke_context
         .get_feature_set()
         .direct_account_pointers_in_program_input;
-    let is_abi_v2 = executable.get_sbpf_version() == SBPFVersion::V4
+    let _is_abi_v2 = executable.get_sbpf_version() == SBPFVersion::V4
         && invoke_context.get_feature_set().program_runtime_abiv2;
 
     let mut serialize_time = Measure::start("serialize");
