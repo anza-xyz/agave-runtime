@@ -211,9 +211,9 @@ pub async fn generate_pull_request_pipeline(pr_number: u64) -> Result<buildkite:
 
         pipeline.add_step(default_stable_sbf_step());
         pipeline.add_step(default_shuttle_step());
-    //     pipeline.add_step(default_coverage_step(3));
-    // } else if coverage_scripts_changed {
-    //     pipeline.add_step(default_coverage_step(3));
+        //     pipeline.add_step(default_coverage_step(3));
+        // } else if coverage_scripts_changed {
+        //     pipeline.add_step(default_coverage_step(3));
     }
 
     Ok(pipeline)
