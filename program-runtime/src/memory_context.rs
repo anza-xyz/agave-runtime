@@ -243,7 +243,7 @@ pub(crate) fn create_abiv2_regions(
     transaction_context: &mut TransactionContext,
 ) -> Vec<MemoryRegion> {
     let mut v2_regions: Vec<MemoryRegion> =
-        vec![MemoryRegion::default(); dbg!(vm_addresses::NUM_REGIONS)];
+        vec![MemoryRegion::default(); vm_addresses::NUM_REGIONS];
 
     // Filled on a later stage, but we still want to have at least base vm_addrs be accurate so that
     // there are no duplicate regions (for e.g. tests.)
@@ -298,11 +298,11 @@ pub(crate) fn create_abiv2_regions(
 
     let section = INSTRUCTION_ACCOUNTS_SECTION;
     let regions = v2_regions
-        .get_mut(dbg!(section.region_index_range()))
+        .get_mut(section.region_index_range())
         .unwrap();
     transaction_context.instruction_accounts_regions(regions);
 
-    dbg!(v2_regions)
+    v2_regions
 }
 
 #[cfg(test)]
