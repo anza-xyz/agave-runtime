@@ -1,7 +1,7 @@
 use crate::IndexOfAccount;
 #[cfg(not(any(target_arch = "bpf", target_arch = "sbf")))]
 use {
-    crate::vm_addresses::{self, GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS},
+    crate::vm_addresses,
     crate::{
         MAX_ACCOUNT_DATA_GROWTH_PER_INSTRUCTION, transaction::TransactionContext,
         transaction_accounts::AccountRefMut,
@@ -245,12 +245,11 @@ impl BorrowedInstructionAccount<'_, '_> {
         self.update_accounts_resize_delta(new_len)?;
         self.account.resize(new_len, 0);
         let tx_index = self.instruction_account.index_in_transaction;
-        let vm_address = GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS
-            .checked_add(vm_addresses::from_index(u64::from(tx_index)))
-            .unwrap();
+        let vm_address =
+            vm_addresses::ACCOUNT_PAYLOAD_SECTION.guest_address_range_for(usize::from(tx_index));
         Ok(MemoryRegion::new(
             self.account.raw_mut_data_slice(),
-            vm_address,
+            vm_address.start,
         ))
     }
 

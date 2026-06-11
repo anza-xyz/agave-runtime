@@ -2,7 +2,6 @@ use {
     crate::invoke_context::BpfAllocator,
     solana_instruction::error::InstructionError,
     solana_sbpf::{
-        ebpf::{MM_BYTECODE_START, MM_HEAP_START, MM_RODATA_START, MM_STACK_START},
         elf::Executable,
         memory_region::{AccessViolationHandler, MemoryMapping, MemoryRegion},
         program::SBPFVersion,
@@ -12,16 +11,13 @@ use {
         IndexOfAccount,
         transaction::TransactionContext,
         vm_addresses::{
-            ACCOUNT_METADATA_AREA, GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS,
-            GUEST_ACCOUNT_PAYLOAD_END_ADDRESS, GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS,
-            GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS, GUEST_INSTRUCTION_DATA_BASE_ADDRESS,
-            GUEST_INSTRUCTION_DATA_END_ADDRESS, INSTRUCTION_TRACE_AREA, RETURN_DATA_SCRATCHPAD,
-            TRANSACTION_FRAME_ADDRESS, abiv2_region_index_from_vm_address,
+            self, ACCOUNT_METADATA_SECTION, ACCOUNT_PAYLOAD_SECTION, BYTECODE_SECTION,
+            HEAP_SECTION, INSTRUCTION_ACCOUNTS_SECTION, INSTRUCTION_DATA_SECTION,
+            INSTRUCTION_TRACE_SECTION, RETURN_DATA_SCRATCHPAD_SECTION, RODATA_SECTION,
+            STACK_SECTION, SYSVAR_ACCOUNT_SECTION, TX_FRAME_SECTION,
         },
     },
 };
-
-const NUMBER_OF_REGIONS: usize = 392;
 
 enum MemoryContextType {
     ABIv1(MemoryContext),
@@ -173,15 +169,15 @@ impl MemoryContexts {
         // Before using the scratchpad the instruction has to call set_buffer_length syscall.
         // This is required in order to set the `program_id`.
         let return_data_scratchpad = regions
-            .get_mut(abiv2_region_index_from_vm_address(RETURN_DATA_SCRATCHPAD))
+            .get_mut(RETURN_DATA_SCRATCHPAD_SECTION.region_index())
             .expect("return data scratchpad always present");
         return_data_scratchpad.writable = false;
 
         let accounts_in_transaction = transaction_context.accounts().len();
-        let accounts_start = abiv2_region_index_from_vm_address(GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS);
-        let accounts_end = accounts_start.saturating_add(accounts_in_transaction);
+        let mut accounts_range = vm_addresses::ACCOUNT_PAYLOAD_SECTION.region_index_range();
+        accounts_range.end = accounts_range.start.saturating_add(accounts_in_transaction);
         let account_regions = regions
-            .get_mut(accounts_start..accounts_end)
+            .get_mut(accounts_range)
             .expect("Account regions should have been configured.");
 
         for (tx_idx, acc_region) in account_regions.iter_mut().enumerate() {
@@ -246,75 +242,67 @@ pub struct SerializedAccountMetadata {
 pub(crate) fn create_abiv2_regions(
     transaction_context: &mut TransactionContext,
 ) -> Vec<MemoryRegion> {
-    let mut v2_regions: Vec<MemoryRegion> = vec![MemoryRegion::default(); NUMBER_OF_REGIONS];
+    let mut v2_regions: Vec<MemoryRegion> =
+        vec![MemoryRegion::default(); dbg!(vm_addresses::NUM_REGIONS)];
 
     // Filled on a later stage, but we still want to have at least base vm_addrs be accurate so that
     // there are no duplicate regions (for e.g. tests.)
-    // Index 0: ELF rodata
-    // Index 1: ELF text area (not mapped)
-    // Index 2: stack
-    // Index 3: heap
-    for vm_addr in [
-        MM_RODATA_START,
-        MM_BYTECODE_START,
-        MM_STACK_START,
-        MM_HEAP_START,
+    for section in [
+        RODATA_SECTION,
+        BYTECODE_SECTION,
+        STACK_SECTION,
+        HEAP_SECTION,
     ] {
-        v2_regions
-            .get_mut(abiv2_region_index_from_vm_address(vm_addr))
-            .unwrap()
-            .vm_addr = vm_addr;
+        let region = v2_regions.get_mut(section.region_index()).unwrap();
+        region.vm_addr = section.guest_address_range().start;
     }
 
-    // Index 4: Transaction frame area
-    let transaction_frame_region = MemoryRegion::new(
+    let section = TX_FRAME_SECTION;
+    let tx_frame_region = MemoryRegion::new(
         transaction_context.transaction_frame_address(),
-        TRANSACTION_FRAME_ADDRESS,
+        section.guest_address_range().start,
     );
-    *v2_regions
-        .get_mut(abiv2_region_index_from_vm_address(
-            TRANSACTION_FRAME_ADDRESS,
-        ))
-        .unwrap() = transaction_frame_region;
+    *v2_regions.get_mut(section.region_index()).unwrap() = tx_frame_region;
 
-    // Index 5: Accounts metadata area
+    let section = ACCOUNT_METADATA_SECTION;
     let accounts_slice = transaction_context.accounts().shared_fields_as_raw_slice();
-    *v2_regions
-        .get_mut(abiv2_region_index_from_vm_address(ACCOUNT_METADATA_AREA))
-        .unwrap() = MemoryRegion::new(accounts_slice, ACCOUNT_METADATA_AREA);
+    *v2_regions.get_mut(section.region_index()).unwrap() =
+        MemoryRegion::new(accounts_slice, section.guest_address_range().start);
 
-    // Index 6: Instruction metadata area
+    let section = INSTRUCTION_TRACE_SECTION;
     let instruction_trace_slice = transaction_context.instruction_trace_as_raw_slice();
-    *v2_regions
-        .get_mut(abiv2_region_index_from_vm_address(INSTRUCTION_TRACE_AREA))
-        .unwrap() = MemoryRegion::new(instruction_trace_slice, INSTRUCTION_TRACE_AREA);
+    *v2_regions.get_mut(section.region_index()).unwrap() =
+        MemoryRegion::new(instruction_trace_slice, section.guest_address_range().start);
 
-    // Index 7: Return data scratchpad area
-    *v2_regions
-        .get_mut(abiv2_region_index_from_vm_address(RETURN_DATA_SCRATCHPAD))
-        .unwrap() = transaction_context.return_data_region();
+    let section = RETURN_DATA_SCRATCHPAD_SECTION;
+    let region = v2_regions.get_mut(section.region_index()).unwrap();
+    *region = transaction_context.return_data_region();
+    debug_assert_eq!(section.guest_address_range().start, region.vm_addr);
 
-    // Indexes 8..264: Transaction accounts payload
-    let start_idx = abiv2_region_index_from_vm_address(GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS);
-    let end_idx = abiv2_region_index_from_vm_address(GUEST_ACCOUNT_PAYLOAD_END_ADDRESS);
-    let regions = v2_regions.get_mut(start_idx..end_idx).unwrap();
+    let section = ACCOUNT_PAYLOAD_SECTION;
+    let regions = v2_regions.get_mut(section.region_index_range()).unwrap();
     transaction_context
         .accounts()
         .account_payload_regions(regions);
 
-    // Indexes 264..328: Instruction data payload area
-    let start_idx = abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_DATA_BASE_ADDRESS);
-    let end_idx = abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_DATA_END_ADDRESS);
-    let regions = v2_regions.get_mut(start_idx..end_idx).unwrap();
+    let section = SYSVAR_ACCOUNT_SECTION;
+    let regions = v2_regions.get_mut(section.region_index_range()).unwrap();
+    for (idx, region) in regions.iter_mut().enumerate() {
+        // TODO: initialize the sysvar section fully?
+        region.vm_addr = section.guest_address_range_for(idx).start;
+    }
+
+    let section = INSTRUCTION_DATA_SECTION;
+    let regions = v2_regions.get_mut(section.region_index_range()).unwrap();
     transaction_context.instruction_payload_regions(regions);
 
-    // Indexes 328..392: Instruction accounts area
-    let start_idx = abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS);
-    let end_idx = abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS);
-    let regions = v2_regions.get_mut(start_idx..end_idx).unwrap();
+    let section = INSTRUCTION_ACCOUNTS_SECTION;
+    let regions = v2_regions
+        .get_mut(dbg!(section.region_index_range()))
+        .unwrap();
     transaction_context.instruction_accounts_regions(regions);
 
-    v2_regions
+    dbg!(v2_regions)
 }
 
 #[cfg(test)]
@@ -330,8 +318,7 @@ mod test {
             vm::Config,
         },
         solana_transaction_context::{
-            MAX_ACCOUNTS_PER_TRANSACTION, instruction_accounts::InstructionAccount,
-            transaction::TransactionContext, vm_addresses::GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS,
+            instruction_accounts::InstructionAccount, transaction::TransactionContext, vm_addresses,
         },
     };
 
@@ -387,9 +374,7 @@ mod test {
             )
         };
 
-        let accounts_range = ((GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS >> 32) as usize)
-            ..((GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS >> 32) as usize)
-                .saturating_add(MAX_ACCOUNTS_PER_TRANSACTION);
+        let accounts_range = vm_addresses::ACCOUNT_PAYLOAD_SECTION.region_index_range();
 
         // IX 1
         tx_context.push().unwrap();

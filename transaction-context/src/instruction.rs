@@ -2,13 +2,8 @@ use crate::{instruction_accounts::InstructionAccount, vm_slice::VmSlice};
 #[cfg(not(any(target_arch = "bpf", target_arch = "sbf")))]
 use {
     crate::{
-        IndexOfAccount,
-        instruction_accounts::BorrowedInstructionAccount,
-        transaction::TransactionContext,
-        vm_addresses::{
-            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS, GUEST_INSTRUCTION_DATA_BASE_ADDRESS,
-            GUEST_REGION_SIZE,
-        },
+        IndexOfAccount, instruction_accounts::BorrowedInstructionAccount,
+        transaction::TransactionContext, vm_addresses,
     },
     solana_account::ReadableAccount,
     solana_instruction::error::InstructionError,
@@ -57,19 +52,15 @@ impl InstructionFrame {
         instruction_accounts_len: usize,
         instruction_data_len: u64,
     ) {
-        let common_offset = GUEST_REGION_SIZE.saturating_mul(instruction_index);
+        let idx = instruction_index as usize;
 
-        // Instruction data slice
-        self.instruction_data = VmSlice::new(
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(common_offset),
-            instruction_data_len,
-        );
+        let data_addresses = vm_addresses::INSTRUCTION_DATA_SECTION.guest_address_range_for(idx);
+        self.instruction_data = VmSlice::new(data_addresses.start, instruction_data_len);
 
-        // Instruction accounts slice
-        self.instruction_accounts = VmSlice::new(
-            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS.saturating_add(common_offset),
-            instruction_accounts_len as u64,
-        );
+        let account_addresses =
+            vm_addresses::INSTRUCTION_ACCOUNTS_SECTION.guest_address_range_for(idx);
+        self.instruction_accounts =
+            VmSlice::new(account_addresses.start, instruction_accounts_len as u64);
     }
 }
 

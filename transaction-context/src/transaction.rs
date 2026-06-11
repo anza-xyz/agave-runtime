@@ -7,12 +7,7 @@ use {
         instruction::{InstructionContext, InstructionFrame},
         instruction_accounts::InstructionAccount,
         transaction_accounts::{KeyedAccountSharedData, TransactionAccounts},
-        vm_addresses::{
-            GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_ACCOUNT_PAYLOAD_END_ADDRESS,
-            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS, GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS,
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS, GUEST_INSTRUCTION_DATA_END_ADDRESS,
-            GUEST_REGION_SIZE, RETURN_DATA_SCRATCHPAD, abiv2_region_index_from_vm_address,
-        },
+        vm_addresses::{self, GuestMemorySection},
     },
     solana_account::{AccountSharedData, ReadableAccount, WritableAccount},
     solana_instruction::error::InstructionError,
@@ -94,11 +89,16 @@ impl<'ix_data> TransactionContext<'ix_data> {
     ) -> Self {
         let transaction_frame = TransactionFrame {
             return_data_pubkey: Pubkey::default(),
-            return_data_scratchpad: VmSlice::new(RETURN_DATA_SCRATCHPAD, 0),
+            return_data_scratchpad: VmSlice::new(
+                vm_addresses::RETURN_DATA_SCRATCHPAD_SECTION
+                    .guest_address_range()
+                    .start,
+                0,
+            ),
             cpi_scratchpad: VmSlice::new(
-                GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(
-                    GUEST_REGION_SIZE.saturating_mul(number_of_top_level_instructions as u64),
-                ),
+                vm_addresses::INSTRUCTION_DATA_SECTION
+                    .guest_address_range()
+                    .start,
                 0,
             ),
             current_executing_instruction: 0,
@@ -304,12 +304,10 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 .total_number_of_instructions_in_trace
                 .saturating_add(1);
             instruction.index_of_caller_instruction = caller_index;
-            let next_ptr = self
-                .transaction_frame
-                .cpi_scratchpad
-                .ptr()
-                .saturating_add(GUEST_REGION_SIZE);
-            self.transaction_frame.cpi_scratchpad = VmSlice::new(next_ptr, 0);
+            let section = vm_addresses::INSTRUCTION_DATA_SECTION;
+            let scratchpad_addrs =
+                section.guest_address_range_for(caller_index.saturating_add(1) as usize);
+            self.transaction_frame.cpi_scratchpad = VmSlice::new(scratchpad_addrs.start, 0);
         }
 
         instruction.program_account_index_in_tx = program_index;
@@ -658,39 +656,48 @@ impl<'ix_data> TransactionContext<'ix_data> {
     }
 
     pub fn instruction_payload_regions(&self, regions: &mut [MemoryRegion]) {
-        for ((ix_frame, ix_data), region) in self
+        let section = vm_addresses::INSTRUCTION_DATA_SECTION;
+        let mut regions = regions.iter_mut().enumerate();
+        for ((ix_frame, ix_data), (_, region)) in self
             .instruction_trace
             .iter()
             .zip(self.instruction_data.iter())
-            .zip(regions.iter_mut())
+            .zip(&mut regions)
         {
-            *region = MemoryRegion::new(&raw const ix_data[..], ix_frame.instruction_data.ptr());
+            let guest_ptr = ix_frame.instruction_data.ptr();
+            *region = MemoryRegion::new(&raw const ix_data[..], guest_ptr);
         }
 
-        self.fill_missing_instruction_regions(regions, GUEST_INSTRUCTION_DATA_BASE_ADDRESS);
+        self.fill_missing_instruction_regions(regions, section);
     }
 
     pub fn instruction_accounts_regions(&self, regions: &mut [MemoryRegion]) {
-        for ((ix_frame, accounts), region) in self
+        let section = vm_addresses::INSTRUCTION_ACCOUNTS_SECTION;
+        let mut regions = regions.iter_mut().enumerate();
+        for ((ix_frame, accounts), (_, region)) in self
             .instruction_trace
             .iter()
             .zip(self.instruction_accounts.iter())
-            .zip(regions.iter_mut())
+            .zip(&mut regions)
         {
             let len = ix_frame.instruction_accounts.len();
             let host_slice = std::ptr::slice_from_raw_parts(accounts.as_ptr(), len as usize);
-            *region = MemoryRegion::new(host_slice, ix_frame.instruction_accounts.ptr());
+            let guest_ptr = ix_frame.instruction_accounts.ptr();
+            *region = MemoryRegion::new(host_slice, guest_ptr);
         }
-        self.fill_missing_instruction_regions(regions, GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS);
+        self.fill_missing_instruction_regions(regions, section);
     }
 
-    fn fill_missing_instruction_regions(&self, regions: &mut [MemoryRegion], base_address: u64) {
-        // Fill the address for the rest of the regions
-        let num_ixs = self.get_instruction_trace_length();
-        for (idx, region) in regions.iter_mut().skip(num_ixs).enumerate() {
-            region.vm_addr = base_address.saturating_add(
-                GUEST_REGION_SIZE.saturating_mul(idx.saturating_add(num_ixs) as u64),
-            );
+    /// Initialize the regions for the instruction trace related regions that haven't been reached
+    /// yet.
+    fn fill_missing_instruction_regions<'a>(
+        &self,
+        regions: impl Iterator<Item = (usize, &'a mut MemoryRegion)>,
+        section: GuestMemorySection,
+    ) {
+        for (idx, region) in regions {
+            region.vm_addr = section.guest_address_range_for(idx).start;
+            region.len = 0;
         }
     }
 
@@ -701,7 +708,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
     ) -> Result<MemoryRegion, InstructionError> {
         let vm_address = old_region.vm_addr;
         let new_region = match vm_address {
-            RETURN_DATA_SCRATCHPAD => {
+            a if vm_addresses::RETURN_DATA_SCRATCHPAD_SECTION.contains_guest_ptr(a) => {
                 self.return_data_bytes.resize(new_len as usize, 0);
                 let insn_ctx = self.get_current_instruction_context()?;
                 self.transaction_frame.return_data_pubkey = *insn_ctx.get_program_key()?;
@@ -712,27 +719,25 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 }
                 MemoryRegion::new(&raw mut self.return_data_bytes[..], vm_address)
             }
-            GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS..GUEST_ACCOUNT_PAYLOAD_END_ADDRESS => {
-                let account_address = vm_address
-                    .checked_sub(GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS)
+            a if vm_addresses::ACCOUNT_PAYLOAD_SECTION.contains_guest_ptr(a) => {
+                let account_region_index = vm_addresses::ACCOUNT_PAYLOAD_SECTION
+                    .region_index_containing(a)
                     .ok_or(InstructionError::InvalidArgument)?;
-                let account_index = abiv2_region_index_from_vm_address(account_address);
-                let index_in_transaction =
-                    u16::try_from(account_index).map_err(|_| InstructionError::MissingAccount)?;
+                let index_in_transaction = u16::try_from(account_region_index)
+                    .map_err(|_| InstructionError::MissingAccount)?;
                 let insn_ctx = self.get_current_instruction_context()?;
                 let index_in_instruction =
                     insn_ctx.get_index_of_account_in_instruction(index_in_transaction)?;
                 let mut account = insn_ctx.try_borrow_instruction_account(index_in_instruction)?;
                 account.resize_payload_region(new_len as usize)?
             }
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS..GUEST_INSTRUCTION_DATA_END_ADDRESS => {
+            a if vm_addresses::INSTRUCTION_DATA_SECTION.contains_guest_ptr(a) => {
                 if !old_region.writable {
                     return Err(InstructionError::InvalidArgument);
                 }
-                let ix_address = vm_address
-                    .checked_sub(GUEST_INSTRUCTION_DATA_BASE_ADDRESS)
+                let ix_idx = vm_addresses::INSTRUCTION_ACCOUNTS_SECTION
+                    .region_index_containing(a)
                     .ok_or(InstructionError::InvalidArgument)?;
-                let ix_idx = abiv2_region_index_from_vm_address(ix_address);
                 let ix = self.instruction_data.get_mut(ix_idx);
                 let ix = ix.ok_or(InstructionError::InvalidArgument)?;
                 let data_vec = match ix {
@@ -745,14 +750,13 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 data_vec.resize(new_len as usize, 0);
                 MemoryRegion::new(&raw mut data_vec[..], vm_address)
             }
-            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS..GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS => {
+            a if vm_addresses::INSTRUCTION_ACCOUNTS_SECTION.contains_guest_ptr(a) => {
                 if !old_region.writable {
                     return Err(InstructionError::InvalidArgument);
                 }
-                let ix_address = vm_address
-                    .checked_sub(GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS)
+                let ix_idx = vm_addresses::INSTRUCTION_ACCOUNTS_SECTION
+                    .region_index_containing(a)
                     .ok_or(InstructionError::InvalidArgument)?;
-                let ix_idx = abiv2_region_index_from_vm_address(ix_address);
                 let ix = self
                     .instruction_accounts
                     .get_mut(ix_idx)
@@ -1081,7 +1085,9 @@ mod tests {
 
         assert_eq!(
             transaction_context.transaction_frame.cpi_scratchpad.ptr(),
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(2))
+            vm_addresses::INSTRUCTION_DATA_SECTION
+                .guest_address_range_for(2)
+                .start
         );
         assert_eq!(
             transaction_context.transaction_frame.cpi_scratchpad.len(),
@@ -1128,7 +1134,9 @@ mod tests {
 
         assert_eq!(
             transaction_context.transaction_frame.cpi_scratchpad.ptr(),
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(3))
+            vm_addresses::INSTRUCTION_ACCOUNTS_SECTION
+                .guest_address_range_for(3)
+                .start
         );
 
         // A nested CPI
@@ -1157,7 +1165,9 @@ mod tests {
 
         assert_eq!(
             transaction_context.transaction_frame.cpi_scratchpad.ptr(),
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(4))
+            vm_addresses::INSTRUCTION_DATA_SECTION
+                .guest_address_range_for(4)
+                .start
         );
 
         assert_eq!(
@@ -1223,7 +1233,9 @@ mod tests {
 
         assert_eq!(
             transaction_context.transaction_frame.cpi_scratchpad.ptr(),
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
+            vm_addresses::INSTRUCTION_DATA_SECTION
+                .guest_address_range_for(5)
+                .start
         );
         assert_eq!(
             transaction_context
@@ -1255,7 +1267,9 @@ mod tests {
 
         assert_eq!(
             transaction_context.transaction_frame.cpi_scratchpad.ptr(),
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
+            vm_addresses::INSTRUCTION_DATA_SECTION
+                .guest_address_range_for(5)
+                .start
         );
 
         assert_eq!(
@@ -1288,7 +1302,9 @@ mod tests {
 
         assert_eq!(
             transaction_context.transaction_frame.cpi_scratchpad.ptr(),
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
+            vm_addresses::INSTRUCTION_DATA_SECTION
+                .guest_address_range_for(5)
+                .start
         );
 
         assert_eq!(
@@ -1341,7 +1357,9 @@ mod tests {
 
         assert_eq!(
             transaction_context.transaction_frame.cpi_scratchpad.ptr(),
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(6))
+            vm_addresses::INSTRUCTION_DATA_SECTION
+                .guest_address_range_for(6)
+                .start
         );
         assert_eq!(
             transaction_context
@@ -1535,16 +1553,18 @@ mod tests {
         let r3 = regions.get(2).unwrap();
         assert_eq!(
             r3.vm_addr,
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS
-                .saturating_add(GUEST_REGION_SIZE.saturating_mul(2u64))
+            vm_addresses::INSTRUCTION_DATA_SECTION
+                .guest_address_range_for(2)
+                .start
         );
         assert_eq!(r3.len, 0);
 
         let r4 = regions.get(3).unwrap();
         assert_eq!(
             r4.vm_addr,
-            GUEST_INSTRUCTION_DATA_BASE_ADDRESS
-                .saturating_add(GUEST_REGION_SIZE.saturating_mul(3u64))
+            vm_addresses::INSTRUCTION_DATA_SECTION
+                .guest_address_range_for(3)
+                .start
         );
         assert_eq!(r4.len, 0);
     }
@@ -1625,16 +1645,18 @@ mod tests {
         let r3 = regions.get(2).unwrap();
         assert_eq!(
             r3.vm_addr,
-            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
-                .saturating_add(GUEST_REGION_SIZE.saturating_mul(2u64))
+            vm_addresses::INSTRUCTION_ACCOUNTS_SECTION
+                .guest_address_range_for(2)
+                .start
         );
         assert_eq!(r3.len, 0);
 
         let r4 = regions.get(3).unwrap();
         assert_eq!(
             r4.vm_addr,
-            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
-                .saturating_add(GUEST_REGION_SIZE.saturating_mul(3u64))
+            vm_addresses::INSTRUCTION_ACCOUNTS_SECTION
+                .guest_address_range_for(3)
+                .start
         );
         assert_eq!(r4.len, 0);
     }
