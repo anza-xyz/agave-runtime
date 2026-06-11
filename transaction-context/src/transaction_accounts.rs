@@ -1,12 +1,11 @@
+#[cfg(not(any(target_arch = "bpf", target_arch = "sbf")))]
+use crate::vm_addresses;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::qualifiers;
 use {crate::vm_slice::VmSlice, solana_pubkey::Pubkey};
 #[cfg(not(any(target_arch = "bpf", target_arch = "sbf")))]
 use {
-    crate::{
-        IndexOfAccount, MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION, MAX_ACCOUNT_DATA_LEN,
-        vm_addresses::{GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_REGION_SIZE},
-    },
+    crate::{IndexOfAccount, MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION, MAX_ACCOUNT_DATA_LEN},
     solana_account::{AccountSharedData, ReadableAccount, WritableAccount},
     solana_instruction::error::InstructionError,
     solana_sbpf::memory_region::MemoryRegion,
@@ -262,6 +261,7 @@ impl TransactionAccounts {
     pub(crate) fn new(accounts: Vec<KeyedAccountSharedData>) -> TransactionAccounts {
         let touched_flags = vec![Cell::new(false); accounts.len()].into_boxed_slice();
         let borrow_counters = vec![BorrowCounter::default(); accounts.len()].into_boxed_slice();
+        let section = vm_addresses::ACCOUNT_PAYLOAD_SECTION;
         let (shared_accounts, private_fields) = accounts
             .into_iter()
             .enumerate()
@@ -272,8 +272,7 @@ impl TransactionAccounts {
                         owner: *item.1.owner(),
                         lamports: item.1.lamports(),
                         payload: VmSlice::new(
-                            GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS
-                                .saturating_add(GUEST_REGION_SIZE.saturating_mul(idx as u64)),
+                            section.guest_address_range_for(idx).start,
                             item.1.data().len() as u64,
                         ),
                     }),
@@ -514,26 +513,31 @@ impl TransactionAccounts {
     }
 
     pub fn account_payload_regions(&self, accounts_regions: &mut [MemoryRegion]) {
-        for ((shared_fields, private_fields), region) in self
+        let section = vm_addresses::ACCOUNT_PAYLOAD_SECTION;
+        let mut regions_iter = accounts_regions.iter_mut().enumerate();
+
+        for ((shared_fields, private_fields), (account_idx_in_tx, region)) in self
             .shared_account_fields
             .iter()
             .zip(self.private_account_fields.iter())
-            .zip(accounts_regions.iter_mut())
+            .zip(&mut regions_iter)
         {
             unsafe {
-                *region = MemoryRegion::new(
-                    &raw const (*(*private_fields.get()).payload)[..],
-                    (*shared_fields.get()).payload.ptr(),
+                let guest_ptr = (*shared_fields.get()).payload.ptr();
+                debug_assert!(
+                    section
+                        .guest_address_range_for(account_idx_in_tx)
+                        .contains(&guest_ptr)
                 );
+                *region =
+                    MemoryRegion::new(&raw const (*(*private_fields.get()).payload)[..], guest_ptr);
             };
         }
 
-        // Fill the remaining regions as empty
-        let accounts_no = self.shared_account_fields.len();
-        for (idx, region) in accounts_regions.iter_mut().skip(accounts_no).enumerate() {
-            region.vm_addr = GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS.saturating_add(
-                GUEST_REGION_SIZE.saturating_mul(accounts_no.saturating_add(idx) as u64),
-            );
+        // Ensure that the remaining regions are empty.
+        for (account_idx_in_tx, region) in regions_iter {
+            region.vm_addr = section.guest_address_range_for(account_idx_in_tx).start;
+            region.len = 0;
         }
     }
 }
@@ -652,10 +656,7 @@ impl DerefMut for AccountRefMut<'_> {
 #[cfg(all(test, not(target_arch = "sbf"), not(target_arch = "bpf")))]
 mod tests {
     use {
-        crate::{
-            transaction_accounts::TransactionAccounts,
-            vm_addresses::{GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_REGION_SIZE},
-        },
+        crate::{transaction_accounts::TransactionAccounts, vm_addresses},
         solana_account::AccountSharedData,
         solana_instruction::error::InstructionError,
         solana_pubkey::Pubkey,
@@ -845,7 +846,9 @@ mod tests {
         let r3 = regions.get(2).unwrap();
         assert_eq!(
             r3.vm_addr,
-            GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(2))
+            vm_addresses::ACCOUNT_PAYLOAD_SECTION
+                .guest_address_range_for(2)
+                .start
         );
         assert_eq!(r3.len, 0);
         assert_eq!(r3.host_addr, 0);
@@ -853,7 +856,9 @@ mod tests {
         let r4 = regions.get(3).unwrap();
         assert_eq!(
             r4.vm_addr,
-            GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(3))
+            vm_addresses::ACCOUNT_PAYLOAD_SECTION
+                .guest_address_range_for(3)
+                .start
         );
         assert_eq!(r4.len, 0);
         assert_eq!(r4.host_addr, 0);

@@ -45,10 +45,7 @@ use {
     solana_svm_log_collector::{ic_logger_msg, ic_msg},
     solana_svm_type_overrides::sync::Arc,
     solana_sysvar::SysvarSerialize,
-    solana_transaction_context::{
-        vm_addresses::{GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, abiv2_region_index_from_vm_address},
-        vm_slice::VmSlice,
-    },
+    solana_transaction_context::{vm_addresses, vm_slice::VmSlice},
     std::{
         alloc::Layout,
         mem::{MaybeUninit, align_of, size_of},
@@ -2774,9 +2771,10 @@ declare_builtin_function!(
         // Changing the owner makes the account readonly.
         if old_owner != translated_key {
             borrowed_account.set_owner(translated_key.as_ref())?;
-            let account_region_index =
-                abiv2_region_index_from_vm_address(GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS)
-                    .saturating_add(account_idx_in_tx as usize);
+            let account_region_index = vm_addresses::ACCOUNT_PAYLOAD_SECTION
+                .region_index_range()
+                .start
+                .saturating_add(account_idx_in_tx as usize);
             let memory_mapping = invoke_context.memory_contexts.memory_mapping_mut()?;
             let mut region = memory_mapping
                 .get_regions()
@@ -2876,10 +2874,7 @@ mod tests {
         solana_sysvar_id::SysvarId,
         solana_transaction_context::{
             instruction_accounts::InstructionAccount,
-            vm_addresses::{
-                GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_ACCOUNT_PAYLOAD_END_ADDRESS,
-                GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS, GUEST_REGION_SIZE, RETURN_DATA_SCRATCHPAD,
-            },
+            vm_addresses::{self, GUEST_REGION_SIZE, GuestMemorySection},
         },
         std::{
             hash::{DefaultHasher, Hash, Hasher},
@@ -8085,16 +8080,22 @@ mod tests {
             .mock_set_mapping_abi_v2(unsafe {
                 MemoryMapping::new(regions, &config, SBPFVersion::V4).unwrap()
             });
-        for base in (1..GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS).step_by(GUEST_REGION_SIZE as usize) {
-            let err =
-                SyscallSetBufferLength::rust(&mut invoke_context, base, 4096, 0, 0, 0).unwrap_err();
-            let err = err.downcast::<SyscallError>().unwrap();
-            assert_eq!(SyscallError::InvalidPointer, *err);
+        for section in vm_addresses::ALL_SECTIONS {
+            for base in section
+                .guest_address_range()
+                .step_by(GUEST_REGION_SIZE as usize)
+                .map(|v| v + 1)
+            {
+                let err = SyscallSetBufferLength::rust(&mut invoke_context, base, 4096, 0, 0, 0)
+                    .unwrap_err();
+                let err = err.downcast::<SyscallError>().unwrap();
+                assert_eq!(SyscallError::InvalidPointer, *err);
+            }
         }
     }
 
-    #[test_case(solana_transaction_context::vm_addresses::RETURN_DATA_SCRATCHPAD)]
-    fn test_syscall_resize_region_works_for_address(addr: u64) {
+    #[test_case(solana_transaction_context::vm_addresses::RETURN_DATA_SCRATCHPAD_SECTION)]
+    fn test_syscall_resize_region_works_for_address(section: GuestMemorySection) {
         let config = Config::default();
         prepare_mockup!(invoke_context, program_id, bpf_loader_upgradeable::id());
         invoke_context.memory_contexts.set_abi_v2().unwrap();
@@ -8106,6 +8107,7 @@ mod tests {
         invoke_context
             .memory_contexts
             .mock_set_mapping_abi_v2(mapping);
+        let addr = section.guest_address_range().start;
         SyscallSetBufferLength::rust(&mut invoke_context, addr, 4096, 0, 0, 0).unwrap();
         let (_, region) = invoke_context
             .memory_contexts
@@ -8126,7 +8128,7 @@ mod tests {
             region.writable = true;
         }
         for (idx, region) in regions.clone().into_iter().enumerate() {
-            if region.vm_addr == RETURN_DATA_SCRATCHPAD {
+            if vm_addresses::RETURN_DATA_SCRATCHPAD_SECTION.contains_guest_ptr(region.vm_addr) {
                 // The return data scratchpad can be resized even when it is not writable
                 continue;
             }
@@ -8140,9 +8142,7 @@ mod tests {
                 SyscallSetBufferLength::rust(&mut invoke_context, region.vm_addr, 4096, 0, 0, 0)
                     .unwrap_err();
             let err = err.downcast::<InstructionError>().unwrap();
-            if (GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS..GUEST_ACCOUNT_PAYLOAD_END_ADDRESS)
-                .contains(&region.vm_addr)
-            {
+            if vm_addresses::ACCOUNT_PAYLOAD_SECTION.contains_guest_ptr(region.vm_addr) {
                 assert_eq!(InstructionError::MissingAccount, *err);
             } else {
                 assert_eq!(InstructionError::InvalidArgument, *err);
@@ -8169,9 +8169,10 @@ mod tests {
         let mut regions = create_abiv2_regions(invoke_context.transaction_context);
         *regions.get_mut(1).unwrap() =
             MemoryRegion::new(&raw const new_owner.as_array()[..], 1u64 << 32);
-        let account_region_index =
-            abiv2_region_index_from_vm_address(GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS)
-                .saturating_add(1);
+        let account_region_index = vm_addresses::ACCOUNT_PAYLOAD_SECTION
+            .region_index_range()
+            .start
+            .saturating_add(1);
         let acc_region = regions.get_mut(account_region_index).unwrap();
         acc_region.writable = true;
         acc_region.access_violation_handler_payload = Some(7);
