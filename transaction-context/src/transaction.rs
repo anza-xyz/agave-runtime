@@ -1,11 +1,9 @@
-use {crate::vm_slice::VmSlice, solana_pubkey::Pubkey};
 #[cfg(not(any(target_arch = "bpf", target_arch = "sbf")))]
 use {
     crate::{
         IndexOfAccount, MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION, MAX_ACCOUNT_DATA_LEN,
         MAX_ACCOUNTS_PER_TRANSACTION,
         instruction::{InstructionContext, InstructionFrame},
-        instruction_accounts::InstructionAccount,
         transaction_accounts::{KeyedAccountSharedData, TransactionAccounts},
         vm_addresses::{
             GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_ACCOUNT_PAYLOAD_END_ADDRESS,
@@ -20,6 +18,10 @@ use {
     solana_rent::Rent,
     solana_sbpf::memory_region::{AccessType, AccessViolationHandler, MemoryRegion, VmExposable},
     std::{borrow::Cow, cell::Cell, rc::Rc},
+};
+use {
+    crate::{instruction_accounts::InstructionAccount, vm_slice::VmSlice},
+    solana_pubkey::Pubkey,
 };
 
 /// Used only in fn `take_instruction_trace` for deconstructing TransactionContext
@@ -41,7 +43,9 @@ pub struct TransactionFrame {
     pub return_data_pubkey: Pubkey,
     pub return_data_scratchpad: VmSlice<u8>,
     /// Scratchpad for programs to write CPI instruction data
-    pub cpi_scratchpad: VmSlice<u8>,
+    pub cpi_data_scratchpad: VmSlice<u8>,
+    /// Scratchpad for programs to write CPI accounts
+    pub cpi_accounts_scratchpad: VmSlice<InstructionAccount>,
     /// Index of current executing instruction
     pub current_executing_instruction: u16,
     /// Number of instructions in the instruction trace (including top level and CPIs)
@@ -95,8 +99,14 @@ impl<'ix_data> TransactionContext<'ix_data> {
         let transaction_frame = TransactionFrame {
             return_data_pubkey: Pubkey::default(),
             return_data_scratchpad: VmSlice::new(RETURN_DATA_SCRATCHPAD, 0),
-            cpi_scratchpad: VmSlice::new(
+            cpi_data_scratchpad: VmSlice::new(
                 GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(
+                    GUEST_REGION_SIZE.saturating_mul(number_of_top_level_instructions as u64),
+                ),
+                0,
+            ),
+            cpi_accounts_scratchpad: VmSlice::new(
+                GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS.saturating_add(
                     GUEST_REGION_SIZE.saturating_mul(number_of_top_level_instructions as u64),
                 ),
                 0,
@@ -304,12 +314,18 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 .total_number_of_instructions_in_trace
                 .saturating_add(1);
             instruction.index_of_caller_instruction = caller_index;
-            let next_ptr = self
+            let next_data_ptr = self
                 .transaction_frame
-                .cpi_scratchpad
+                .cpi_data_scratchpad
                 .ptr()
                 .saturating_add(GUEST_REGION_SIZE);
-            self.transaction_frame.cpi_scratchpad = VmSlice::new(next_ptr, 0);
+            self.transaction_frame.cpi_data_scratchpad = VmSlice::new(next_data_ptr, 0);
+            let next_accounts_ptr = self
+                .transaction_frame
+                .cpi_accounts_scratchpad
+                .ptr()
+                .saturating_add(GUEST_REGION_SIZE);
+            self.transaction_frame.cpi_accounts_scratchpad = VmSlice::new(next_accounts_ptr, 0);
         }
 
         instruction.program_account_index_in_tx = program_index;
@@ -1080,13 +1096,35 @@ mod tests {
         );
 
         assert_eq!(
-            transaction_context.transaction_frame.cpi_scratchpad.ptr(),
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .ptr(),
             GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(2))
         );
         assert_eq!(
-            transaction_context.transaction_frame.cpi_scratchpad.len(),
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .len(),
             0,
         );
+        assert_eq!(
+            transaction_context
+                .transaction_frame
+                .cpi_accounts_scratchpad
+                .ptr(),
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
+                .saturating_add(GUEST_REGION_SIZE.saturating_mul(2))
+        );
+        assert_eq!(
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .len(),
+            0,
+        );
+
         assert_eq!(
             transaction_context.number_of_called_instructions_in_trace(),
             1
@@ -1127,8 +1165,19 @@ mod tests {
         );
 
         assert_eq!(
-            transaction_context.transaction_frame.cpi_scratchpad.ptr(),
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .ptr(),
             GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(3))
+        );
+        assert_eq!(
+            transaction_context
+                .transaction_frame
+                .cpi_accounts_scratchpad
+                .ptr(),
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
+                .saturating_add(GUEST_REGION_SIZE.saturating_mul(3))
         );
 
         // A nested CPI
@@ -1156,8 +1205,19 @@ mod tests {
         );
 
         assert_eq!(
-            transaction_context.transaction_frame.cpi_scratchpad.ptr(),
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .ptr(),
             GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(4))
+        );
+        assert_eq!(
+            transaction_context
+                .transaction_frame
+                .cpi_accounts_scratchpad
+                .ptr(),
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
+                .saturating_add(GUEST_REGION_SIZE.saturating_mul(4))
         );
 
         assert_eq!(
@@ -1222,9 +1282,21 @@ mod tests {
         );
 
         assert_eq!(
-            transaction_context.transaction_frame.cpi_scratchpad.ptr(),
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .ptr(),
             GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
         );
+        assert_eq!(
+            transaction_context
+                .transaction_frame
+                .cpi_accounts_scratchpad
+                .ptr(),
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
+                .saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
+        );
+
         assert_eq!(
             transaction_context
                 .transaction_frame
@@ -1254,8 +1326,19 @@ mod tests {
         );
 
         assert_eq!(
-            transaction_context.transaction_frame.cpi_scratchpad.ptr(),
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .ptr(),
             GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
+        );
+        assert_eq!(
+            transaction_context
+                .transaction_frame
+                .cpi_accounts_scratchpad
+                .ptr(),
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
+                .saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
         );
 
         assert_eq!(
@@ -1287,8 +1370,19 @@ mod tests {
         );
 
         assert_eq!(
-            transaction_context.transaction_frame.cpi_scratchpad.ptr(),
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .ptr(),
             GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
+        );
+        assert_eq!(
+            transaction_context
+                .transaction_frame
+                .cpi_accounts_scratchpad
+                .ptr(),
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
+                .saturating_add(GUEST_REGION_SIZE.saturating_mul(5))
         );
 
         assert_eq!(
@@ -1340,9 +1434,21 @@ mod tests {
         );
 
         assert_eq!(
-            transaction_context.transaction_frame.cpi_scratchpad.ptr(),
+            transaction_context
+                .transaction_frame
+                .cpi_data_scratchpad
+                .ptr(),
             GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(6))
         );
+        assert_eq!(
+            transaction_context
+                .transaction_frame
+                .cpi_accounts_scratchpad
+                .ptr(),
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
+                .saturating_add(GUEST_REGION_SIZE.saturating_mul(6))
+        );
+
         assert_eq!(
             transaction_context
                 .transaction_frame
@@ -1504,7 +1610,8 @@ mod tests {
             transaction_frame: TransactionFrame {
                 return_data_pubkey: Pubkey::default(),
                 return_data_scratchpad: VmSlice::new(0, 0),
-                cpi_scratchpad: VmSlice::new(0, 0),
+                cpi_data_scratchpad: VmSlice::new(0, 0),
+                cpi_accounts_scratchpad: VmSlice::new(0, 0),
                 current_executing_instruction: 0,
                 total_number_of_instructions_in_trace: 0,
                 number_of_cpis_in_trace: 0,
@@ -1582,7 +1689,8 @@ mod tests {
             transaction_frame: TransactionFrame {
                 return_data_pubkey: Pubkey::default(),
                 return_data_scratchpad: VmSlice::new(0, 0),
-                cpi_scratchpad: VmSlice::new(0, 0),
+                cpi_data_scratchpad: VmSlice::new(0, 0),
+                cpi_accounts_scratchpad: VmSlice::new(0, 0),
                 current_executing_instruction: 0,
                 total_number_of_instructions_in_trace: 0,
                 number_of_cpis_in_trace: 0,
