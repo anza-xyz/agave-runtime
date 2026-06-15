@@ -304,7 +304,7 @@ pub fn execute<'a, 'b: 'a>(
         .unwrap_or_default();
 
     let mut create_vm_time = Measure::start("create_vm");
-    if let Some(v1_params) = &mut abiv1_parameters {
+    let input_registers = if let Some(v1_params) = &mut abiv1_parameters {
         unsafe {
             // SAFETY: The memory pointed to by regions is valid for the useful lifetime of
             // `invoke_context`, which in turn contains the `MemoryMapping` that allows access to this
@@ -318,9 +318,16 @@ pub fn execute<'a, 'b: 'a>(
                 account_data_direct_mapping,
             )?;
         }
+        let mut entrypoint_parameters = [0u64; 5];
+        entrypoint_parameters[0] = ebpf::MM_INPUT_START;
+        entrypoint_parameters[1] = v1_params.instruction_data_offset as u64;
+        entrypoint_parameters
     } else {
         invoke_context.memory_contexts.set_abi_v2()?;
-    }
+        invoke_context
+            .transaction_context
+            .abi_v2_entrypoint_arguments()?
+    };
 
     let execution_result = {
         let mut execution_mode = ExecutionMode::PreferJit;
@@ -354,10 +361,9 @@ pub fn execute<'a, 'b: 'a>(
         let execute_time = Measure::start("execute");
         let prev_nested_exec_time = vm.context().total_nested_exec_time;
 
-        if let Some(v1_params) = &abiv1_parameters {
-            vm.registers[1] = ebpf::MM_INPUT_START;
-            vm.registers[2] = v1_params.instruction_data_offset as u64;
-        }
+        // Program entrypoint arguments
+        vm.registers[1..6].copy_from_slice(&input_registers);
+
         let mut call_frames =
             MEMORY_POOL.with_borrow_mut(|memory_pool| memory_pool.get_call_frames());
         let (compute_units_consumed, result) =

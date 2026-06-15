@@ -9,7 +9,8 @@ use {
             GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_ACCOUNT_PAYLOAD_END_ADDRESS,
             GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS, GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS,
             GUEST_INSTRUCTION_DATA_BASE_ADDRESS, GUEST_INSTRUCTION_DATA_END_ADDRESS,
-            GUEST_REGION_SIZE, RETURN_DATA_SCRATCHPAD, abiv2_region_index_from_vm_address,
+            GUEST_REGION_SIZE, INSTRUCTION_TRACE_AREA, RETURN_DATA_SCRATCHPAD,
+            abiv2_region_index_from_vm_address,
         },
     },
     solana_account::{AccountSharedData, ReadableAccount, WritableAccount},
@@ -781,6 +782,28 @@ impl<'ix_data> TransactionContext<'ix_data> {
             }
         };
         Ok(new_region)
+    }
+
+    /// Return the arguments for an ABIv2 program
+    pub fn abi_v2_entrypoint_arguments(&self) -> Result<[u64; 5], InstructionError> {
+        let mut registers: [u64; 5] = [0; 5];
+        let current_instruction_idx = self.get_current_instruction_index()?;
+        registers[0] = INSTRUCTION_TRACE_AREA.saturating_add(
+            size_of::<InstructionFrame>().saturating_mul(current_instruction_idx) as u64,
+        );
+
+        let current_ix_frame = self
+            .instruction_trace
+            .get(current_instruction_idx)
+            .expect("The frame for this instruction must exist");
+
+        registers[1] = current_ix_frame.instruction_accounts.ptr();
+        registers[2] = current_ix_frame.instruction_accounts.len();
+
+        registers[3] = current_ix_frame.instruction_data.ptr();
+        registers[4] = current_ix_frame.instruction_data.len();
+
+        Ok(registers)
     }
 }
 
