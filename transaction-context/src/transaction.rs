@@ -784,26 +784,22 @@ impl<'ix_data> TransactionContext<'ix_data> {
         Ok(new_region)
     }
 
-    /// Return the arguments for an ABIv2 program
-    pub fn abi_v2_entrypoint_arguments(&self) -> Result<[u64; 5], InstructionError> {
-        let mut registers: [u64; 5] = [0; 5];
+    /// Return the guest pointer for the InstructionFrame address for the instruction
+    /// under execution
+    pub fn ix_frame_guest_ptr(&self) -> Result<u64, InstructionError> {
         let current_instruction_idx = self.get_current_instruction_index()?;
-        registers[0] = INSTRUCTION_TRACE_AREA.saturating_add(
+        Ok(INSTRUCTION_TRACE_AREA.saturating_add(
             size_of::<InstructionFrame>().saturating_mul(current_instruction_idx) as u64,
-        );
+        ))
+    }
 
-        let current_ix_frame = self
+    /// Return the InstructionFrame for the instruction under execution
+    pub fn current_ix_frame(&self) -> Result<&InstructionFrame, InstructionError> {
+        let current_instruction_idx = self.get_current_instruction_index()?;
+        Ok(self
             .instruction_trace
             .get(current_instruction_idx)
-            .expect("The frame for this instruction must exist");
-
-        registers[1] = current_ix_frame.instruction_accounts.ptr();
-        registers[2] = current_ix_frame.instruction_accounts.len();
-
-        registers[3] = current_ix_frame.instruction_data.ptr();
-        registers[4] = current_ix_frame.instruction_data.len();
-
-        Ok(registers)
+            .expect("The frame for this instruction must exist"))
     }
 }
 

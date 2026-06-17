@@ -304,7 +304,7 @@ pub fn execute<'a, 'b: 'a>(
         .unwrap_or_default();
 
     let mut create_vm_time = Measure::start("create_vm");
-    let input_registers = if let Some(v1_params) = &mut abiv1_parameters {
+    if let Some(v1_params) = &mut abiv1_parameters {
         unsafe {
             // SAFETY: The memory pointed to by regions is valid for the useful lifetime of
             // `invoke_context`, which in turn contains the `MemoryMapping` that allows access to this
@@ -318,16 +318,9 @@ pub fn execute<'a, 'b: 'a>(
                 account_data_direct_mapping,
             )?;
         }
-        let mut entrypoint_parameters = [0u64; 5];
-        entrypoint_parameters[0] = ebpf::MM_INPUT_START;
-        entrypoint_parameters[1] = v1_params.instruction_data_offset as u64;
-        entrypoint_parameters
     } else {
         invoke_context.memory_contexts.set_abi_v2()?;
-        invoke_context
-            .transaction_context
-            .abi_v2_entrypoint_arguments()?
-    };
+    }
 
     let execution_result = {
         let mut execution_mode = ExecutionMode::PreferJit;
@@ -362,7 +355,27 @@ pub fn execute<'a, 'b: 'a>(
         let prev_nested_exec_time = vm.context().total_nested_exec_time;
 
         // Program entrypoint arguments
-        vm.registers[1..6].copy_from_slice(&input_registers);
+        if let Some(v1_params) = &abiv1_parameters {
+            vm.registers[1] = ebpf::MM_INPUT_START;
+            vm.registers[2] = v1_params.instruction_data_offset as u64;
+        } else {
+            vm.registers[1] = vm.context().transaction_context.ix_frame_guest_ptr()?;
+
+            (
+                vm.registers[2],
+                vm.registers[3],
+                vm.registers[4],
+                vm.registers[5],
+            ) = {
+                let ix_frame = vm.context().transaction_context.current_ix_frame()?;
+                (
+                    ix_frame.instruction_accounts.ptr(),
+                    ix_frame.instruction_accounts.len(),
+                    ix_frame.instruction_data.ptr(),
+                    ix_frame.instruction_data.len(),
+                )
+            };
+        }
 
         let mut call_frames =
             MEMORY_POOL.with_borrow_mut(|memory_pool| memory_pool.get_call_frames());
