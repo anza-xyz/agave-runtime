@@ -335,216 +335,218 @@ pub(crate) fn create_abiv2_regions(
     v2_regions
 }
 
-// #[cfg(test)]
-// mod test {
-//     use {
-//         crate::memory_context::{MemoryContexts, create_abiv2_regions},
-//         solana_account::AccountSharedData,
-//         solana_pubkey::Pubkey,
-//         solana_rent::Rent,
-//         solana_sbpf::{
-//             memory_region::{MemoryMapping, default_access_violation_handler},
-//             program::SBPFVersion,
-//             vm::Config,
-//         },
-//         solana_transaction_context::{
-//             MAX_ACCOUNTS_PER_TRANSACTION, instruction_accounts::InstructionAccount,
-//             transaction::TransactionContext, vm_addresses::GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS,
-//         },
-//     };
-//
-//     #[test]
-//     fn test_update_account_permissions() {
-//         let program = Pubkey::new_unique();
-//         let accounts = vec![
-//             (
-//                 Pubkey::new_unique(),
-//                 AccountSharedData::new(20, 10, &program),
-//             ),
-//             (
-//                 Pubkey::new_unique(),
-//                 AccountSharedData::new(30, 15, &program),
-//             ),
-//             (
-//                 Pubkey::new_unique(),
-//                 AccountSharedData::new(40, 5, &program),
-//             ),
-//             (
-//                 Pubkey::new_unique(),
-//                 AccountSharedData::new(60, 2, &program),
-//             ),
-//             (
-//                 program,
-//                 AccountSharedData::new(20, 3, &Pubkey::new_unique()),
-//             ),
-//         ];
-//
-//         let mut tx_context = TransactionContext::new(accounts, Rent::default(), 4, 64, 3);
-//
-//         tx_context
-//             .configure_top_level_instruction_for_tests(
-//                 4,
-//                 vec![
-//                     InstructionAccount::new(0, false, false),
-//                     InstructionAccount::new(2, false, true),
-//                     InstructionAccount::new(1, false, false),
-//                     InstructionAccount::new(3, false, true),
-//                 ],
-//                 Vec::new(),
-//             )
-//             .unwrap();
-//
-//         let mut memory_contexts = MemoryContexts::new();
-//         let abi_v2_regions = create_abiv2_regions(&mut tx_context);
-//         *memory_contexts.abiv2_mappings = unsafe {
-//             MemoryMapping::new_uninitialized(
-//                 abi_v2_regions,
-//                 &Config::default(),
-//                 SBPFVersion::V4,
-//                 Box::new(default_access_violation_handler),
-//             )
-//         };
-//
-//         let accounts_range = ((GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS >> 32) as usize)
-//             ..((GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS >> 32) as usize)
-//                 .saturating_add(MAX_ACCOUNTS_PER_TRANSACTION);
-//
-//         // IX 1
-//         tx_context.push().unwrap();
-//         memory_contexts
-//             .abi_v2_prepare_for_instruction(&tx_context)
-//             .unwrap();
-//         let ix1_regions = memory_contexts
-//             .abiv2_mappings
-//             .get_regions()
-//             .get(accounts_range.clone())
-//             .unwrap();
-//
-//         let reg_zero = ix1_regions.first().unwrap();
-//         assert!(reg_zero.access_violation_handler_payload.is_none());
-//         assert!(!reg_zero.host_buffer().is_mutable());
-//         let reg_one = ix1_regions.get(1).unwrap();
-//         assert!(reg_one.access_violation_handler_payload.is_none());
-//         assert!(!reg_one.host_buffer().is_mutable());
-//         let reg_two = ix1_regions.get(2).unwrap();
-//         assert_eq!(reg_two.access_violation_handler_payload, Some(2));
-//         assert!(!reg_two.host_buffer().is_mutable());
-//         let reg_three = ix1_regions.get(3).unwrap();
-//         assert_eq!(reg_three.access_violation_handler_payload, Some(3));
-//         assert!(!reg_three.host_buffer().is_mutable());
-//         for account_region in ix1_regions.iter().skip(4) {
-//             assert!(account_region.access_violation_handler_payload.is_none());
-//         }
-//
-//         // IX 2
-//         tx_context.pop().unwrap();
-//
-//         tx_context
-//             .configure_top_level_instruction_for_tests(
-//                 4,
-//                 vec![
-//                     InstructionAccount::new(1, false, false),
-//                     InstructionAccount::new(2, false, false),
-//                     InstructionAccount::new(0, false, true),
-//                 ],
-//                 Vec::new(),
-//             )
-//             .unwrap();
-//         tx_context.push().unwrap();
-//
-//         memory_contexts
-//             .abi_v2_prepare_for_instruction(&tx_context)
-//             .unwrap();
-//         let ix2_regions = memory_contexts
-//             .abiv2_mappings
-//             .get_regions()
-//             .get(accounts_range.clone())
-//             .unwrap();
-//
-//         let reg_zero = ix2_regions.first().unwrap();
-//         assert_eq!(reg_zero.access_violation_handler_payload, Some(0));
-//         assert!(!reg_zero.host_buffer().is_mutable());
-//         let reg_one = ix2_regions.get(1).unwrap();
-//         assert!(reg_one.access_violation_handler_payload.is_none());
-//         assert!(!reg_one.host_buffer().is_mutable());
-//         let reg_two = ix2_regions.get(2).unwrap();
-//         assert!(reg_two.access_violation_handler_payload.is_none());
-//         assert!(!reg_two.host_buffer().is_mutable());
-//         let reg_three = ix2_regions.get(3).unwrap();
-//         assert!(reg_three.access_violation_handler_payload.is_none());
-//         assert!(!reg_three.host_buffer().is_mutable());
-//         for account_region in ix2_regions.iter().skip(4) {
-//             assert!(account_region.access_violation_handler_payload.is_none());
-//         }
-//
-//         // IX 3
-//         tx_context.pop().unwrap();
-//
-//         tx_context
-//             .configure_top_level_instruction_for_tests(
-//                 4,
-//                 vec![
-//                     InstructionAccount::new(0, false, true),
-//                     InstructionAccount::new(1, false, true),
-//                     InstructionAccount::new(2, false, false),
-//                 ],
-//                 Vec::new(),
-//             )
-//             .unwrap();
-//
-//         tx_context.push().unwrap();
-//         memory_contexts
-//             .abi_v2_prepare_for_instruction(&tx_context)
-//             .unwrap();
-//         let ix3_regions = memory_contexts
-//             .abiv2_mappings
-//             .get_regions()
-//             .get(accounts_range.clone())
-//             .unwrap();
-//         let reg_zero = ix3_regions.first().unwrap();
-//         assert_eq!(reg_zero.access_violation_handler_payload, Some(0));
-//         assert!(!reg_zero.host_buffer().is_mutable());
-//         let reg_one = ix3_regions.get(1).unwrap();
-//         assert_eq!(reg_one.access_violation_handler_payload, Some(1));
-//         assert!(!reg_one.host_buffer().is_mutable());
-//         let reg_two = ix3_regions.get(2).unwrap();
-//         assert!(reg_two.access_violation_handler_payload.is_none());
-//         assert!(!reg_two.host_buffer().is_mutable());
-//         for account_region in ix3_regions.iter().skip(3) {
-//             assert!(account_region.access_violation_handler_payload.is_none());
-//         }
-//
-//         // IX 3 again, but with region made writable
-//         let first_account = memory_contexts
-//             .abiv2_mappings
-//             .get_regions_mut()
-//             .get_mut(accounts_range.clone())
-//             .unwrap()
-//             .first_mut()
-//             .unwrap();
-//         unsafe {
-//             first_account.redirect(first_account.host_buffer().mutable());
-//         }
-//         first_account.access_violation_handler_payload = None;
-//         memory_contexts
-//             .abi_v2_prepare_for_instruction(&tx_context)
-//             .unwrap();
-//         let ix3_regions = memory_contexts
-//             .abiv2_mappings
-//             .get_regions()
-//             .get(accounts_range.clone())
-//             .unwrap();
-//         let reg_zero = ix3_regions.first().unwrap();
-//         assert!(reg_zero.access_violation_handler_payload.is_none());
-//         assert!(reg_zero.host_buffer().is_mutable());
-//         let reg_one = ix3_regions.get(1).unwrap();
-//         assert_eq!(reg_one.access_violation_handler_payload, Some(1));
-//         assert!(!reg_one.host_buffer().is_mutable());
-//         let reg_two = ix3_regions.get(2).unwrap();
-//         assert!(reg_two.access_violation_handler_payload.is_none());
-//         assert!(!reg_two.host_buffer().is_mutable());
-//         for account_region in ix3_regions.iter().skip(3) {
-//             assert!(account_region.access_violation_handler_payload.is_none());
-//         }
-//     }
-// }
+#[cfg(test)]
+mod test {
+    use {
+        crate::{
+            memory_context::{MemoryContexts, create_abiv2_regions},
+            with_mock_invoke_context,
+        },
+        solana_account::AccountSharedData,
+        solana_pubkey::Pubkey,
+        solana_sbpf::{
+            memory_region::{MemoryMapping, default_access_violation_handler},
+            program::SBPFVersion,
+            vm::Config,
+        },
+        solana_transaction_context::{
+            MAX_ACCOUNTS_PER_TRANSACTION, instruction_accounts::InstructionAccount,
+            vm_addresses::GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS,
+        },
+    };
+
+    #[test]
+    fn test_update_account_permissions() {
+        let program = Pubkey::new_unique();
+        let accounts = vec![
+            (
+                Pubkey::new_unique(),
+                AccountSharedData::new(20, 10, &program),
+            ),
+            (
+                Pubkey::new_unique(),
+                AccountSharedData::new(30, 15, &program),
+            ),
+            (
+                Pubkey::new_unique(),
+                AccountSharedData::new(40, 5, &program),
+            ),
+            (
+                Pubkey::new_unique(),
+                AccountSharedData::new(60, 2, &program),
+            ),
+            (
+                program,
+                AccountSharedData::new(20, 3, &Pubkey::new_unique()),
+            ),
+        ];
+        with_mock_invoke_context!(invoke_context, _temp_tx_context, Vec::new());
+        let mut tx_context = TransactionContext::new(accounts, Rent::default(), 4, 64, 3);
+        invoke_context.transaction_context = &mut tx_context;
+
+        invoke_context
+            .transaction_context
+            .configure_top_level_instruction_for_tests(
+                4,
+                vec![
+                    InstructionAccount::new(0, false, false),
+                    InstructionAccount::new(2, false, true),
+                    InstructionAccount::new(1, false, false),
+                    InstructionAccount::new(3, false, true),
+                ],
+                Vec::new(),
+            )
+            .unwrap();
+
+        let mut memory_contexts = MemoryContexts::new();
+        let abi_v2_regions = create_abiv2_regions(&mut invoke_context);
+        *memory_contexts.abiv2_mappings = unsafe {
+            MemoryMapping::new_uninitialized(
+                abi_v2_regions,
+                &Config::default(),
+                SBPFVersion::V4,
+                Box::new(default_access_violation_handler),
+            )
+        };
+
+        let accounts_range = ((GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS >> 32) as usize)
+            ..((GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS >> 32) as usize)
+                .saturating_add(MAX_ACCOUNTS_PER_TRANSACTION);
+
+        // IX 1
+        tx_context.push().unwrap();
+        memory_contexts
+            .abi_v2_prepare_for_instruction(&tx_context)
+            .unwrap();
+        let ix1_regions = memory_contexts
+            .abiv2_mappings
+            .get_regions()
+            .get(accounts_range.clone())
+            .unwrap();
+
+        let reg_zero = ix1_regions.first().unwrap();
+        assert!(reg_zero.access_violation_handler_payload.is_none());
+        assert!(!reg_zero.writable);
+        let reg_one = ix1_regions.get(1).unwrap();
+        assert!(reg_one.access_violation_handler_payload.is_none());
+        assert!(!reg_one.writable);
+        let reg_two = ix1_regions.get(2).unwrap();
+        assert_eq!(reg_two.access_violation_handler_payload, Some(2));
+        assert!(!reg_two.writable);
+        let reg_three = ix1_regions.get(3).unwrap();
+        assert_eq!(reg_three.access_violation_handler_payload, Some(3));
+        assert!(!reg_three.writable);
+        for account_region in ix1_regions.iter().skip(4) {
+            assert!(account_region.access_violation_handler_payload.is_none());
+        }
+
+        // IX 2
+        tx_context.pop().unwrap();
+
+        tx_context
+            .configure_top_level_instruction_for_tests(
+                4,
+                vec![
+                    InstructionAccount::new(1, false, false),
+                    InstructionAccount::new(2, false, false),
+                    InstructionAccount::new(0, false, true),
+                ],
+                Vec::new(),
+            )
+            .unwrap();
+        tx_context.push().unwrap();
+
+        memory_contexts
+            .abi_v2_prepare_for_instruction(&tx_context)
+            .unwrap();
+        let ix2_regions = memory_contexts
+            .abiv2_mappings
+            .get_regions()
+            .get(accounts_range.clone())
+            .unwrap();
+
+        let reg_zero = ix2_regions.first().unwrap();
+        assert_eq!(reg_zero.access_violation_handler_payload, Some(0));
+        assert!(!reg_zero.writable);
+        let reg_one = ix2_regions.get(1).unwrap();
+        assert!(reg_one.access_violation_handler_payload.is_none());
+        assert!(!reg_one.writable);
+        let reg_two = ix2_regions.get(2).unwrap();
+        assert!(reg_two.access_violation_handler_payload.is_none());
+        assert!(!reg_two.writable);
+        let reg_three = ix2_regions.get(3).unwrap();
+        assert!(reg_three.access_violation_handler_payload.is_none());
+        assert!(!reg_three.writable);
+        for account_region in ix2_regions.iter().skip(4) {
+            assert!(account_region.access_violation_handler_payload.is_none());
+        }
+
+        // IX 3
+        tx_context.pop().unwrap();
+
+        tx_context
+            .configure_top_level_instruction_for_tests(
+                4,
+                vec![
+                    InstructionAccount::new(0, false, true),
+                    InstructionAccount::new(1, false, true),
+                    InstructionAccount::new(2, false, false),
+                ],
+                Vec::new(),
+            )
+            .unwrap();
+
+        tx_context.push().unwrap();
+        memory_contexts
+            .abi_v2_prepare_for_instruction(&tx_context)
+            .unwrap();
+        let ix3_regions = memory_contexts
+            .abiv2_mappings
+            .get_regions()
+            .get(accounts_range.clone())
+            .unwrap();
+        let reg_zero = ix3_regions.first().unwrap();
+        assert_eq!(reg_zero.access_violation_handler_payload, Some(0));
+        assert!(!reg_zero.writable);
+        let reg_one = ix3_regions.get(1).unwrap();
+        assert_eq!(reg_one.access_violation_handler_payload, Some(1));
+        assert!(!reg_one.writable);
+        let reg_two = ix3_regions.get(2).unwrap();
+        assert!(reg_two.access_violation_handler_payload.is_none());
+        assert!(!reg_two.writable);
+        for account_region in ix3_regions.iter().skip(3) {
+            assert!(account_region.access_violation_handler_payload.is_none());
+        }
+
+        // IX 3 again, but with region made writable
+        let first_account = memory_contexts
+            .abiv2_mappings
+            .get_regions_mut()
+            .get_mut(accounts_range.clone())
+            .unwrap()
+            .first_mut()
+            .unwrap();
+        first_account.writable = true;
+        first_account.access_violation_handler_payload = None;
+        memory_contexts
+            .abi_v2_prepare_for_instruction(&tx_context)
+            .unwrap();
+        let ix3_regions = memory_contexts
+            .abiv2_mappings
+            .get_regions()
+            .get(accounts_range.clone())
+            .unwrap();
+        let reg_zero = ix3_regions.first().unwrap();
+        assert!(reg_zero.access_violation_handler_payload.is_none());
+        assert!(reg_zero.writable);
+        let reg_one = ix3_regions.get(1).unwrap();
+        assert_eq!(reg_one.access_violation_handler_payload, Some(1));
+        assert!(!reg_one.writable);
+        let reg_two = ix3_regions.get(2).unwrap();
+        assert!(reg_two.access_violation_handler_payload.is_none());
+        assert!(!reg_two.writable);
+        for account_region in ix3_regions.iter().skip(3) {
+            assert!(account_region.access_violation_handler_payload.is_none());
+        }
+    }
+}
