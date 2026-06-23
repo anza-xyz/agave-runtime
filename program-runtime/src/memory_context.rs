@@ -303,37 +303,18 @@ pub(crate) fn create_abiv2_regions(
     let end_idx = abiv2_region_index_from_vm_address(GUEST_SYSVARS_END_ADDRESS);
     let regions = v2_regions.get_mut(start_idx..end_idx).unwrap();
     let sysvars = environment_config.sysvar_cache();
-    let sysvar_data = [
-        sysvars
-            .sysvar_id_to_buffer(&solana_clock::Clock::id())
-            .as_ref()
-            .unwrap(),
-        sysvars
-            .sysvar_id_to_buffer(&solana_epoch_rewards::EpochRewards::id())
-            .as_ref()
-            .unwrap(),
-        sysvars
-            .sysvar_id_to_buffer(&solana_epoch_schedule::EpochSchedule::id())
-            .as_ref()
-            .unwrap(),
-        sysvars
-            .sysvar_id_to_buffer(&solana_last_restart_slot::LastRestartSlot::id())
-            .as_ref()
-            .unwrap(),
-        sysvars
-            .sysvar_id_to_buffer(&solana_rent::Rent::id())
-            .as_ref()
-            .unwrap(),
-        sysvars
-            .sysvar_id_to_buffer(&solana_slot_hashes::SlotHashes::id())
-            .as_ref()
-            .unwrap(),
-        sysvars
-            .sysvar_id_to_buffer(&solana_stake_interface::stake_history::StakeHistory::id())
-            .as_ref()
-            .unwrap(),
+    let sysvar_ids = [
+        solana_clock::Clock::id(),
+        solana_epoch_rewards::EpochRewards::id(),
+        solana_epoch_schedule::EpochSchedule::id(),
+        solana_last_restart_slot::LastRestartSlot::id(),
+        solana_rent::Rent::id(),
+        solana_slot_hashes::SlotHashes::id(),
+        solana_stake_interface::stake_history::StakeHistory::id(),
     ];
-    for ((region, idx), data) in regions.iter_mut().zip(start_idx..end_idx).zip(sysvar_data) {
+    for ((region, idx), var) in regions.iter_mut().zip(start_idx..end_idx).zip(sysvar_ids) {
+        let data = sysvars.sysvar_id_to_buffer(&var).as_deref();
+        let data = data.unwrap_or_default();
         *region = MemoryRegion::new(&raw const data[..], vm_addresses::from_index(idx as u64));
     }
 
