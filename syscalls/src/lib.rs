@@ -8406,7 +8406,19 @@ mod tests {
             .unwrap();
         assert_eq!(next_ctx.get_instruction_data().len(), 20);
 
+        // Invalid size should not work
         let bytes_size = size_of::<InstructionAccount>().saturating_mul(20) as u64;
+        let result = SyscallSetBufferLength::rust(
+            &mut invoke_context,
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS.saturating_add(MM_REGION_SIZE.saturating_mul(2)),
+            bytes_size.saturating_add(1),
+            0,
+            0,
+            0,
+        );
+        let err = result.unwrap_err().downcast::<InstructionError>().unwrap();
+        assert_eq!(*err, InstructionError::InvalidArgument);
+
         let result = SyscallSetBufferLength::rust(
             &mut invoke_context,
             GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS.saturating_add(MM_REGION_SIZE.saturating_mul(2)),

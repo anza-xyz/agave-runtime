@@ -853,6 +853,10 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 const _: () = assert!(SZ > 0);
                 let number_of_accounts = new_len.saturating_div(SZ);
 
+                if !new_len.is_multiple_of(SZ) {
+                    return Err(InstructionError::InvalidArgument);
+                }
+
                 let ix_accs = self
                     .instruction_accounts
                     .last_mut()
