@@ -210,6 +210,11 @@ impl<'ix_data> TransactionContext<'ix_data> {
         self.instruction_trace.len().saturating_sub(1)
     }
 
+    /// Check if the provided instruction index is that of an
+    pub fn is_upcoming_cpi_ix_index(&self, ix_idx: usize) -> bool {
+        self.get_instruction_trace_length() == ix_idx
+    }
+
     /// Gets a view on an instruction by its index in the trace
     pub fn get_instruction_context_at_index_in_trace(
         &self,
@@ -785,7 +790,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
                     .checked_sub(GUEST_INSTRUCTION_DATA_BASE_ADDRESS)
                     .ok_or(InstructionError::InvalidArgument)?;
                 let ix_idx = abiv2_region_index_from_vm_address(ix_address);
-                if self.get_instruction_trace_length() != ix_idx {
+                if !self.is_upcoming_cpi_ix_index(ix_idx) {
                     // Only the last region is supposed to be resized, since it is going to be
                     // used for CPI
                     return Err(InstructionError::InvalidArgument);
@@ -833,7 +838,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
                     .ok_or(InstructionError::InvalidArgument)?;
                 let ix_idx = abiv2_region_index_from_vm_address(ix_address);
 
-                if self.get_instruction_trace_length() != ix_idx {
+                if !self.is_upcoming_cpi_ix_index(ix_idx) {
                     // Only the last region is supposed to be resized, since it is going to be
                     // used for CPI
                     return Err(InstructionError::InvalidArgument);
