@@ -801,13 +801,11 @@ impl<'ix_data> TransactionContext<'ix_data> {
                     .last_mut()
                     .ok_or(InstructionError::InvalidArgument)?;
 
-                let data_vec = match ix_data {
-                    Cow::Owned(vec) => vec,
-                    Cow::Borrowed(_) => {
-                        debug_assert!(false, "writable region implies ownership of ix data");
-                        ix_data.to_mut()
-                    }
-                };
+                debug_assert!(
+                    matches!(ix_data, Cow::Owned(_)),
+                    "writable regions implies ownership of ix data"
+                );
+                let data_vec = ix_data.to_mut();
 
                 data_vec.resize(new_len as usize, 0);
 
