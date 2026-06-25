@@ -2886,6 +2886,7 @@ mod tests {
         },
         solana_sysvar_id::SysvarId,
         solana_transaction_context::{
+            MAX_ACCOUNTS_PER_TRANSACTION,
             instruction_accounts::InstructionAccount,
             vm_addresses::{
                 GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_ACCOUNT_PAYLOAD_END_ADDRESS,
@@ -2893,6 +2894,7 @@ mod tests {
             },
         },
         std::{
+            borrow::Cow,
             hash::{DefaultHasher, Hash, Hasher},
             mem,
             str::FromStr,
@@ -5202,10 +5204,13 @@ mod tests {
         for (idx, ix) in ixs.iter().enumerate() {
             invoke_context
                 .transaction_context
-                .configure_top_level_instruction_for_tests(
+                .configure_instruction_at_index(
+                    idx,
                     0,
                     vec![InstructionAccount::new(idx as u16, false, false)],
-                    vec![*ix],
+                    vec![u16::MAX; MAX_ACCOUNTS_PER_TRANSACTION],
+                    Cow::Owned(vec![*ix]),
+                    None,
                 )
                 .unwrap();
         }
@@ -5466,10 +5471,13 @@ mod tests {
         for (idx, ix) in top_level.iter().enumerate() {
             invoke_context
                 .transaction_context
-                .configure_top_level_instruction_for_tests(
+                .configure_instruction_at_index(
+                    idx,
                     0,
                     vec![InstructionAccount::new(idx as u16, false, false)],
-                    vec![*ix],
+                    vec![u16::MAX; MAX_ACCOUNTS_PER_TRANSACTION],
+                    Cow::Owned(vec![*ix]),
+                    None,
                 )
                 .unwrap();
         }
