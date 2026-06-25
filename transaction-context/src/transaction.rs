@@ -131,9 +131,9 @@ impl<'ix_data> TransactionContext<'ix_data> {
             number_of_top_level_instructions.saturating_add(1),
             InstructionFrame::default,
         );
-        deduplication_maps.resize(
+        deduplication_maps.resize_with(
             number_of_top_level_instructions.saturating_add(1),
-            Box::default(),
+            Box::default,
         );
         instruction_accounts
             .resize_with(number_of_top_level_instructions.saturating_add(1), Vec::new);
@@ -457,7 +457,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 .number_of_cpis_in_trace
                 .saturating_add(1);
             self.instruction_trace.push(InstructionFrame::default());
-            self.deduplication_maps.push(Box::new([]));
+            self.deduplication_maps.push(Box::default());
             self.instruction_accounts.push(Vec::new());
             self.instruction_data.push(Cow::Owned(Vec::new()));
             (
