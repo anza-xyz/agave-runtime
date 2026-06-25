@@ -312,7 +312,12 @@ pub(crate) fn create_abiv2_regions(
         solana_slot_hashes::SlotHashes::id(),
         solana_stake_interface::stake_history::StakeHistory::id(),
     ];
-    for ((region, idx), var) in regions.iter_mut().zip(start_idx..end_idx).zip(sysvar_ids) {
+    debug_assert_eq!(sysvar_ids.len(), (start_idx..end_idx).len());
+    for ((region, idx), var) in regions
+        .iter_mut()
+        .zip(start_idx..end_idx)
+        .zip(sysvar_ids.into_iter().rev())
+    {
         let data = sysvars.sysvar_id_to_buffer(&var).as_deref();
         let data = data.unwrap_or_default();
         *region = MemoryRegion::new(&raw const data[..], vm_addresses::from_index(idx as u64));
