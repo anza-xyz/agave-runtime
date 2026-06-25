@@ -222,11 +222,11 @@ fn test_access_invalid_regions() {
         check_invalid_access(i);
     }
 
-    for i in 0x109..0x148u64 {
+    for i in 0x110..0x14Fu64 {
         check_invalid_access(i);
     }
 
-    for i in 0x149..0x160 {
+    for i in 0x150..0x18F {
         check_invalid_access(i);
     }
 }
