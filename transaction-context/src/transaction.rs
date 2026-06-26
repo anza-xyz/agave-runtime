@@ -796,14 +796,9 @@ impl<'ix_data> TransactionContext<'ix_data> {
                     return Err(InstructionError::InvalidArgument);
                 }
 
-                // If the CPI region is not there yet, we must create it.
-                if self.instruction_data.len() <= ix_idx {
-                    self.instruction_data.push(Cow::Owned(Vec::new()));
-                }
-
                 let ix_data = self
                     .instruction_data
-                    .last_mut()
+                    .get_mut(ix_idx)
                     .ok_or(InstructionError::InvalidArgument)?;
 
                 debug_assert!(
@@ -816,7 +811,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
 
                 let ix_frame = self
                     .instruction_trace
-                    .last_mut()
+                    .get_mut(ix_idx)
                     .ok_or(InstructionError::InvalidArgument)?;
 
                 ix_frame.instruction_data = VmSlice::new(
@@ -844,11 +839,6 @@ impl<'ix_data> TransactionContext<'ix_data> {
                     return Err(InstructionError::InvalidArgument);
                 }
 
-                // If the CPI region is not there yet, we must create it.
-                if self.instruction_accounts.len() <= ix_idx {
-                    self.instruction_accounts.push(Vec::new());
-                }
-
                 // This constant and the assertion serve to ensure we will never divide by zero
                 // and appease clippy.
                 // PS: The assertion is done during compile time.
@@ -862,7 +852,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
 
                 let ix_accs = self
                     .instruction_accounts
-                    .last_mut()
+                    .get_mut(ix_idx)
                     .ok_or(InstructionError::InvalidArgument)?;
 
                 ix_accs.resize(
@@ -872,7 +862,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
 
                 let ix_frame = self
                     .instruction_trace
-                    .last_mut()
+                    .get_mut(ix_idx)
                     .ok_or(InstructionError::InvalidArgument)?;
 
                 ix_frame.instruction_accounts = VmSlice::new(

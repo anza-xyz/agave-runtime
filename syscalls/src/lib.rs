@@ -8468,7 +8468,7 @@ mod tests {
             0,
             0,
         );
-        let err = result.unwrap_err().downca§st::<InstructionError>().unwrap();
+        let err = result.unwrap_err().downcast::<InstructionError>().unwrap();
         assert_eq!(*err, InstructionError::InvalidArgument);
 
         // Not even after returning from CPI
