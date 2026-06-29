@@ -348,7 +348,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
     fn deduplicate_accounts(instruction_accounts: &mut [InstructionAccount]) -> Vec<u16> {
         let mut dedup_map = vec![u16::MAX; MAX_ACCOUNTS_PER_TRANSACTION];
         for idx_in_ix in 0..instruction_accounts.len() {
-            let index_in_instruction = dedup_map
+            let first_occurrence_in_ix = dedup_map
                 .get_mut(
                     instruction_accounts
                         .get(idx_in_ix)
@@ -356,21 +356,18 @@ impl<'ix_data> TransactionContext<'ix_data> {
                         .index_in_transaction as usize,
                 )
                 .unwrap();
-            if *index_in_instruction == u16::MAX {
-                *index_in_instruction = idx_in_ix as u16;
+            if *first_occurrence_in_ix == u16::MAX {
+                *first_occurrence_in_ix = idx_in_ix as u16;
             } else {
                 // Let's update the signer and writable flags for the first appearance of this
                 // account.
-                let (is_signer, is_writable) = {
-                    let this_account = instruction_accounts.get(idx_in_ix).unwrap();
-                    (this_account.is_signer(), this_account.is_writable())
-                };
+                let [this_account, other_account] = instruction_accounts
+                    .get_disjoint_mut([idx_in_ix, *first_occurrence_in_ix as usize])
+                    .expect("Accounts indices must exist in array");
 
-                let other_account = instruction_accounts
-                    .get_mut(*index_in_instruction as usize)
-                    .unwrap();
-                other_account.set_is_signer(other_account.is_signer() || is_signer);
-                other_account.set_is_writable(other_account.is_writable() || is_writable);
+                other_account.set_is_signer(other_account.is_signer() || this_account.is_signer());
+                other_account
+                    .set_is_writable(other_account.is_writable() || this_account.is_writable());
             }
         }
 
@@ -391,19 +388,15 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 as usize;
 
             if current_index != other_account_index {
-                let (is_signer, is_writable) = {
-                    let reference_account = instruction_accounts
-                        .get(other_account_index)
-                        .expect("Account must exist");
-                    (
-                        reference_account.is_signer(),
-                        reference_account.is_writable(),
-                    )
-                };
+                let [current_account, reference_account] = instruction_accounts
+                    .get_disjoint_mut([current_index, other_account_index])
+                    .expect("Indices must be present in instruction account");
 
-                let current_account = instruction_accounts.get_mut(current_index).unwrap();
-                current_account.set_is_signer(current_account.is_signer() || is_signer);
-                current_account.set_is_writable(current_account.is_writable() || is_writable);
+                current_account
+                    .set_is_signer(current_account.is_signer() || reference_account.is_signer());
+                current_account.set_is_writable(
+                    current_account.is_writable() || reference_account.is_writable(),
+                );
             }
         }
     }
