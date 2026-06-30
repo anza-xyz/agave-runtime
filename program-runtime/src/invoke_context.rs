@@ -354,39 +354,39 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
     fn verify_instruction_accounts(&mut self, signers: &[Pubkey]) -> Result<(), InstructionError> {
         let instruction_context = self.transaction_context.get_current_instruction_context()?;
         let next_context = self.transaction_context.get_next_instruction_context()?;
-        let instruction_accounts = next_context.instruction_accounts();
-        for current_index in 0..instruction_accounts.len() {
-            let instruction_account = instruction_accounts.get(current_index).unwrap();
-
+        let callee_instruction_accounts = next_context.instruction_accounts();
+        for (idx, callee_account) in callee_instruction_accounts.iter().enumerate() {
             if next_context
-                .is_instruction_account_duplicate(current_index as u16)?
+                .is_instruction_account_duplicate(idx as u16)?
                 .is_some()
             {
                 continue;
             }
 
             let index_in_caller = instruction_context
-                .get_index_of_account_in_instruction(instruction_account.index_in_transaction)?;
+                .get_index_of_account_in_instruction(callee_account.index_in_transaction)?;
 
             // The account passed down to the instruction is supposed to be present in the caller
             let account_key =
                 instruction_context.get_key_of_instruction_account(index_in_caller)?;
 
-            // get_index_of_account_in_instruction has already checked if the index is valid.
             let caller_instruction_account = instruction_context
                 .instruction_accounts()
                 .get(index_in_caller as usize)
-                .unwrap();
+                .expect(
+                    "get_index_of_account_in_instruction above has already checked if the index \
+                     is valid.",
+                );
 
             // Readonly in caller cannot become writable in callee
-            if instruction_account.is_writable() && !caller_instruction_account.is_writable() {
+            if callee_account.is_writable() && !caller_instruction_account.is_writable() {
                 ic_msg!(self, "{}'s writable privilege escalated", account_key,);
                 return Err(InstructionError::PrivilegeEscalation);
             }
 
             // To be signed in the callee,
             // it must be either signed in the caller or by the program
-            if instruction_account.is_signer()
+            if callee_account.is_signer()
                 && !(caller_instruction_account.is_signer() || signers.contains(account_key))
             {
                 ic_msg!(self, "{}'s signer privilege escalated", account_key,);
