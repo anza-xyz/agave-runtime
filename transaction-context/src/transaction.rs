@@ -1843,40 +1843,82 @@ mod tests {
         let dedup_map = TransactionContext::deduplicate_accounts(&mut instruction_accounts);
 
         // Check that the dedup_map correctly maps duplicate accounts
-        assert_eq!(*dedup_map.first().unwrap(), 0); // First account 0 at index 0
-        assert_eq!(*dedup_map.get(1).unwrap(), 1); // First account 1 at index 1
-        assert_eq!(*dedup_map.get(2).unwrap(), 3); // Account 2 at index 3
+        assert_eq!(
+            *dedup_map.first().unwrap(),
+            0,
+            "account must be a duplicate of itself"
+        );
+        assert_eq!(
+            *dedup_map.get(1).unwrap(),
+            1,
+            "account must be a duplicate of itself"
+        );
+        assert_eq!(
+            *dedup_map.get(2).unwrap(),
+            3,
+            "account must be a duplicate of itself"
+        );
 
         // Check that duplicate accounts are properly merged
         let acc = instruction_accounts.first().unwrap();
         assert_eq!(acc.index_in_transaction, 0);
-        assert!(!acc.is_signer()); // Not a signer because account 1 is not signer
-        assert!(acc.is_writable()); // Writable because account 0 is writable
+        assert!(
+            !acc.is_signer(),
+            "Must not be a signer because account 1 is not signer"
+        );
+        assert!(
+            acc.is_writable(),
+            "Must be writable because account 0 is writable"
+        );
 
         let acc = instruction_accounts.get(1).unwrap();
         assert_eq!(acc.index_in_transaction, 1);
-        assert!(acc.is_signer()); // Signer because account 1 is signer
-        assert!(!acc.is_writable()); // Not writable because account 1 is not writable
+        assert!(
+            acc.is_signer(),
+            "Must be signer because account 1 is signer"
+        );
+        assert!(
+            !acc.is_writable(),
+            "Must not be writable because account 1 is not writable"
+        );
 
         let acc = instruction_accounts.get(2).unwrap();
         assert_eq!(acc.index_in_transaction, 0);
-        assert!(!acc.is_signer()); // Should be merged from account 1
-        assert!(acc.is_writable()); // Should be merged from account 0
+        assert!(!acc.is_signer(), "Should be merged from account 1");
+        assert!(acc.is_writable(), "Should be merged from account 0");
 
         let acc = instruction_accounts.get(3).unwrap();
         assert_eq!(acc.index_in_transaction, 2);
-        assert!(!acc.is_signer()); // Not a signer
-        assert!(acc.is_writable()); // Writable
+        assert!(!acc.is_signer());
+        assert!(acc.is_writable());
 
         let acc = instruction_accounts.get(4).unwrap();
         assert_eq!(acc.index_in_transaction, 1);
-        assert!(acc.is_signer()); // Signer because account 1 is signer
-        assert!(!acc.is_writable()); // Not writable because account 1 is not writable
+        assert!(
+            acc.is_signer(),
+            "Must be signer because account 1 is signer"
+        );
+        assert!(
+            !acc.is_writable(),
+            "Must not be writable because account 1 is not writable"
+        );
 
         // Verify that the deduplication map correctly identifies duplicates
-        assert_eq!(*dedup_map.first().unwrap(), 0); // First occurrence of account 0 at index 0
-        assert_eq!(*dedup_map.get(1).unwrap(), 1); // First occurrence of account 1 at index 1
-        assert_eq!(*dedup_map.get(2).unwrap(), 3); // First occurrence of account 2 at index 3
+        assert_eq!(
+            *dedup_map.first().unwrap(),
+            0,
+            "account must be a duplicate of itself"
+        );
+        assert_eq!(
+            *dedup_map.get(1).unwrap(),
+            1,
+            "account must be a duplicate of itself"
+        );
+        assert_eq!(
+            *dedup_map.get(2).unwrap(),
+            3,
+            "account must be a duplicate of itself"
+        );
     }
 
     #[test]
@@ -1890,9 +1932,21 @@ mod tests {
         let dedup_map = TransactionContext::deduplicate_accounts(&mut instruction_accounts);
 
         // Check that the dedup_map correctly maps each account to itself
-        assert_eq!(*dedup_map.first().unwrap(), 0); // Account 0 at index 0
-        assert_eq!(*dedup_map.get(1).unwrap(), 1); // Account 1 at index 1
-        assert_eq!(*dedup_map.get(2).unwrap(), 2); // Account 2 at index 2
+        assert_eq!(
+            *dedup_map.first().unwrap(),
+            0,
+            "account must be a duplicate of itself"
+        );
+        assert_eq!(
+            *dedup_map.get(1).unwrap(),
+            1,
+            "account must be a duplicate of itself"
+        );
+        assert_eq!(
+            *dedup_map.get(2).unwrap(),
+            2,
+            "account must be a duplicate of itself"
+        );
 
         // Check that accounts are not modified
         let acc = instruction_accounts.first().unwrap();
@@ -1922,14 +1976,26 @@ mod tests {
         let dedup_map = TransactionContext::deduplicate_accounts(&mut instruction_accounts);
 
         // Check that all accounts map to the first occurrence (index 0)
-        assert_eq!(*dedup_map.first().unwrap(), 0); // Account 0 at index 0
-        assert_eq!(*dedup_map.get(1).unwrap(), u16::MAX);
+        assert_eq!(
+            *dedup_map.first().unwrap(),
+            0,
+            "account must be a duplicate of itself"
+        );
+        for idx in dedup_map.iter().skip(1) {
+            assert_eq!(*idx, u16::MAX);
+        }
 
         // Check that the first account has combined flags
         let acc = instruction_accounts.first().unwrap();
         assert_eq!(acc.index_in_transaction, 0);
-        assert!(acc.is_signer()); // Should be signer because of second account
-        assert!(acc.is_writable()); // Should be writable because of first account
+        assert!(
+            acc.is_signer(),
+            "Should be signer because of second account"
+        );
+        assert!(
+            acc.is_writable(),
+            "Should be writable because of first account"
+        );
 
         // Check that the other accounts have the same flags as the first
         let acc = instruction_accounts.get(1).unwrap();
