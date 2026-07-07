@@ -8379,7 +8379,7 @@ mod tests {
             )
             .unwrap();
 
-        let regions = create_abiv2_regions(invoke_context.transaction_context);
+        let regions = create_abiv2_regions(&mut invoke_context);
         let mapping = unsafe {
             MemoryMapping::new(regions.clone(), &Config::default(), SBPFVersion::V4).unwrap()
         };

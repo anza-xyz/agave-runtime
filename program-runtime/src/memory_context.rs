@@ -243,9 +243,7 @@ pub struct SerializedAccountMetadata {
 }
 
 #[cfg_attr(feature = "dev-context-only-utils", qualifier_attr::qualifiers(pub))]
-pub(crate) fn create_abiv2_regions(
-    transaction_context: &mut TransactionContext,
-) -> Vec<MemoryRegion> {
+pub(crate) fn create_abiv2_regions(invoke_context: &mut InvokeContext) -> Vec<MemoryRegion> {
     const NUMBER_OF_REGIONS: usize =
         vm_addresses::abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS);
     let mut v2_regions: Vec<MemoryRegion> = Vec::with_capacity(NUMBER_OF_REGIONS);
@@ -301,7 +299,6 @@ pub(crate) fn create_abiv2_regions(
     // 264..271: Sysvars
     let start_idx = abiv2_region_index_from_vm_address(GUEST_SYSVARS_BASE_ADDRESS);
     let end_idx = abiv2_region_index_from_vm_address(GUEST_SYSVARS_END_ADDRESS);
-    let regions = v2_regions.get_mut(start_idx..end_idx).unwrap();
     let sysvars = environment_config.sysvar_cache();
     let sysvar_ids = [
         solana_clock::Clock::id(),
@@ -313,14 +310,13 @@ pub(crate) fn create_abiv2_regions(
         solana_stake_interface::stake_history::StakeHistory::id(),
     ];
     debug_assert_eq!(sysvar_ids.len(), (start_idx..end_idx).len());
-    for ((region, idx), var) in regions
-        .iter_mut()
-        .zip(start_idx..end_idx)
-        .zip(sysvar_ids.into_iter().rev())
-    {
+    for (idx, var) in (start_idx..end_idx).zip(sysvar_ids.into_iter().rev()) {
         let data = sysvars.sysvar_id_to_buffer(&var).as_deref();
         let data = data.unwrap_or_default();
-        *region = MemoryRegion::new(&raw const data[..], vm_addresses::from_index(idx as u64));
+        v2_regions.push(MemoryRegion::new(
+            &raw const data[..],
+            vm_addresses::from_index(idx as u64),
+        ));
     }
 
     // Indexes 271..335: Instruction data payload area
@@ -431,16 +427,16 @@ mod test {
 
         let reg_zero = ix1_regions.first().unwrap();
         assert!(reg_zero.access_violation_handler_payload.is_none());
-        assert!(!reg_zero.writable);
+        assert!(!reg_zero.host_buffer().is_mutable());
         let reg_one = ix1_regions.get(1).unwrap();
         assert!(reg_one.access_violation_handler_payload.is_none());
-        assert!(!reg_one.writable);
+        assert!(!reg_one.host_buffer().is_mutable());
         let reg_two = ix1_regions.get(2).unwrap();
         assert_eq!(reg_two.access_violation_handler_payload, Some(2));
-        assert!(!reg_two.writable);
+        assert!(!reg_two.host_buffer().is_mutable());
         let reg_three = ix1_regions.get(3).unwrap();
         assert_eq!(reg_three.access_violation_handler_payload, Some(3));
-        assert!(!reg_three.writable);
+        assert!(!reg_three.host_buffer().is_mutable());
         for account_region in ix1_regions.iter().skip(4) {
             assert!(account_region.access_violation_handler_payload.is_none());
         }
@@ -472,16 +468,16 @@ mod test {
 
         let reg_zero = ix2_regions.first().unwrap();
         assert_eq!(reg_zero.access_violation_handler_payload, Some(0));
-        assert!(!reg_zero.writable);
+        assert!(!reg_zero.host_buffer().is_mutable());
         let reg_one = ix2_regions.get(1).unwrap();
         assert!(reg_one.access_violation_handler_payload.is_none());
-        assert!(!reg_one.writable);
+        assert!(!reg_one.host_buffer().is_mutable());
         let reg_two = ix2_regions.get(2).unwrap();
         assert!(reg_two.access_violation_handler_payload.is_none());
-        assert!(!reg_two.writable);
+        assert!(!reg_two.host_buffer().is_mutable());
         let reg_three = ix2_regions.get(3).unwrap();
         assert!(reg_three.access_violation_handler_payload.is_none());
-        assert!(!reg_three.writable);
+        assert!(!reg_three.host_buffer().is_mutable());
         for account_region in ix2_regions.iter().skip(4) {
             assert!(account_region.access_violation_handler_payload.is_none());
         }
@@ -512,13 +508,13 @@ mod test {
             .unwrap();
         let reg_zero = ix3_regions.first().unwrap();
         assert_eq!(reg_zero.access_violation_handler_payload, Some(0));
-        assert!(!reg_zero.writable);
+        assert!(!reg_zero.host_buffer().is_mutable());
         let reg_one = ix3_regions.get(1).unwrap();
         assert_eq!(reg_one.access_violation_handler_payload, Some(1));
-        assert!(!reg_one.writable);
+        assert!(!reg_one.host_buffer().is_mutable());
         let reg_two = ix3_regions.get(2).unwrap();
         assert!(reg_two.access_violation_handler_payload.is_none());
-        assert!(!reg_two.writable);
+        assert!(!reg_two.host_buffer().is_mutable());
         for account_region in ix3_regions.iter().skip(3) {
             assert!(account_region.access_violation_handler_payload.is_none());
         }
@@ -531,7 +527,9 @@ mod test {
             .unwrap()
             .first_mut()
             .unwrap();
-        first_account.writable = true;
+        unsafe {
+            first_account.redirect(first_account.host_buffer().mutable());
+        }
         first_account.access_violation_handler_payload = None;
         memory_contexts
             .abi_v2_prepare_for_instruction(&tx_context)
@@ -543,13 +541,13 @@ mod test {
             .unwrap();
         let reg_zero = ix3_regions.first().unwrap();
         assert!(reg_zero.access_violation_handler_payload.is_none());
-        assert!(reg_zero.writable);
+        assert!(reg_zero.host_buffer().is_mutable());
         let reg_one = ix3_regions.get(1).unwrap();
         assert_eq!(reg_one.access_violation_handler_payload, Some(1));
-        assert!(!reg_one.writable);
+        assert!(!reg_one.host_buffer().is_mutable());
         let reg_two = ix3_regions.get(2).unwrap();
         assert!(reg_two.access_violation_handler_payload.is_none());
-        assert!(!reg_two.writable);
+        assert!(!reg_two.host_buffer().is_mutable());
         for account_region in ix3_regions.iter().skip(3) {
             assert!(account_region.access_violation_handler_payload.is_none());
         }
