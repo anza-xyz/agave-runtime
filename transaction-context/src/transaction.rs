@@ -986,6 +986,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
     }
 
     /// Build an ABIv2 instruction frame for CPI
+    /// It receives the index of the callee program account in the transaction
     pub fn build_abi_v2_frame(
         &mut self,
         program_idx_in_tx: IndexOfAccount,
@@ -1006,6 +1007,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
             .instruction_accounts
             .last_mut()
             .ok_or(InstructionError::CallDepth)?;
+        // Deduplicate the instruction accounts the caller wrote in the CPI scratchpad
         let dedup_map = Self::deduplicate_accounts(ix_accounts)?;
         *self
             .deduplication_maps
@@ -2231,7 +2233,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_abi_v2_frame() {
+    fn test_set_abi_v2_frame_wrong_input() {
         let transaction_accounts = vec![
             (
                 Pubkey::new_unique(),
@@ -2264,11 +2266,14 @@ mod tests {
             ix_accounts.push(InstructionAccount::new(0, false, false));
         }
 
-        // Non-existing program id;
+        // Non-existing program id
+        // A program account index that is not part of the transaction
         let result = tx_context.build_abi_v2_frame(9);
         assert_eq!(result.err().unwrap(), InstructionError::MissingAccount);
 
         // Push a nonexisting account in the array
+        // This part actually checks if the function `deduplicate_accounts` will return an error
+        // for a nonexisting account.
         {
             let ix_accounts = tx_context.instruction_accounts.last_mut().unwrap();
             ix_accounts.push(InstructionAccount::new(300, false, false));

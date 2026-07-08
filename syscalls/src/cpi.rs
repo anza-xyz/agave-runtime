@@ -99,7 +99,7 @@ declare_builtin_function!(
     ) -> Result<u64, Error> {
         // Deduct cost
         let compute_cost = invoke_context.get_execution_cost();
-        invoke_context.compute_meter.consume_checked(compute_cost.cpi_bytes_per_unit)?;
+        invoke_context.compute_meter.consume_checked(compute_cost.abi_v2_cpi_base)?;
 
         // Configure instruction frame
         let program_id_converted = u16::try_from(program_idx_in_tx).map_err(|_| InstructionError::MissingAccount)?;
