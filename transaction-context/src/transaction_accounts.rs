@@ -1,5 +1,3 @@
-#[cfg(not(any(target_arch = "bpf", target_arch = "sbf")))]
-use crate::MAX_ACCOUNTS_PER_TRANSACTION;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::qualifiers;
 use {crate::vm_slice::VmSlice, solana_pubkey::Pubkey};
@@ -511,8 +509,7 @@ impl TransactionAccounts {
             self.shared_account_fields.len(),
             self.private_account_fields.len()
         );
-        let non_empty_iter = self
-            .shared_account_fields
+        self.shared_account_fields
             .iter()
             .zip(self.private_account_fields.iter())
             .map(|(shared_fields, private_fields)| unsafe {
@@ -528,14 +525,7 @@ impl TransactionAccounts {
                     &raw const (*(*private_fields.get()).payload)[..],
                     (*shared_fields.get()).payload.ptr(),
                 )
-            });
-        let empty_region_filler = (self.shared_account_fields.len()..MAX_ACCOUNTS_PER_TRANSACTION)
-            .map(|index| {
-                let vm_addr = GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS
-                    .saturating_add(GUEST_REGION_SIZE.saturating_mul(index as u64));
-                MemoryRegion::new_empty(vm_addr)
-            });
-        non_empty_iter.chain(empty_region_filler)
+            })
     }
 }
 

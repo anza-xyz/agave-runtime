@@ -14,9 +14,7 @@ use {
         transaction::TransactionContext,
         vm_addresses::{
             self, ACCOUNT_METADATA_AREA, GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS,
-            GUEST_ACCOUNT_PAYLOAD_END_ADDRESS, GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS,
-            GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS, GUEST_INSTRUCTION_DATA_BASE_ADDRESS,
-            GUEST_INSTRUCTION_DATA_END_ADDRESS, GUEST_SYSVARS_BASE_ADDRESS,
+            GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS, GUEST_SYSVARS_BASE_ADDRESS,
             GUEST_SYSVARS_END_ADDRESS, INSTRUCTION_TRACE_AREA, RETURN_DATA_SCRATCHPAD,
             TRANSACTION_FRAME_ADDRESS, abiv2_region_index_from_vm_address,
         },
@@ -255,10 +253,6 @@ pub(crate) fn create_abiv2_regions(invoke_context: &mut InvokeContext) -> Vec<Me
 
     // Filled on a later stage, but we still want to have at least base vm_addrs be accurate so that
     // there are no duplicate regions (for e.g. tests.)
-    // Index 0: ELF rodata
-    // Index 1: ELF text area (not mapped)
-    // Index 2: stack
-    // Index 3: heap
     for vm_addr in [
         MM_RODATA_START,
         MM_BYTECODE_START,
@@ -268,35 +262,25 @@ pub(crate) fn create_abiv2_regions(invoke_context: &mut InvokeContext) -> Vec<Me
         v2_regions.push(MemoryRegion::new_empty(vm_addr));
     }
 
-    // Index 4: Transaction frame area
     let transaction_frame_region = MemoryRegion::new(
         transaction_context.transaction_frame_address(),
         TRANSACTION_FRAME_ADDRESS,
     );
     v2_regions.push(transaction_frame_region);
 
-    // Index 5: Accounts metadata area
     let accounts_slice = transaction_context.accounts().shared_fields_as_raw_slice();
     v2_regions.push(MemoryRegion::new(accounts_slice, ACCOUNT_METADATA_AREA));
 
-    // Index 6: Instruction metadata area
     let instruction_trace_slice = transaction_context.instruction_trace_as_raw_slice();
     v2_regions.push(MemoryRegion::new(
         instruction_trace_slice,
         INSTRUCTION_TRACE_AREA,
     ));
-
-    // Index 7: Return data scratchpad area
     v2_regions.push(transaction_context.return_data_region());
-
-    // Indexes 8..264: Transaction accounts payload
-    let start_idx = abiv2_region_index_from_vm_address(GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS);
-    debug_assert_eq!(v2_regions.len(), start_idx);
-    let end_idx = abiv2_region_index_from_vm_address(GUEST_ACCOUNT_PAYLOAD_END_ADDRESS);
     v2_regions.extend(transaction_context.accounts().account_payload_regions());
-    debug_assert_eq!(v2_regions.len(), end_idx);
 
-    // 264..271: Sysvars
+    // NOTE: there are padding regions between accounts and sysvars which are populated (if needed)
+    // during construction of `MemoryMapping`.
     let start_idx = abiv2_region_index_from_vm_address(GUEST_SYSVARS_BASE_ADDRESS);
     let end_idx = abiv2_region_index_from_vm_address(GUEST_SYSVARS_END_ADDRESS);
     let sysvars = environment_config.sysvar_cache();
@@ -309,7 +293,6 @@ pub(crate) fn create_abiv2_regions(invoke_context: &mut InvokeContext) -> Vec<Me
         solana_slot_hashes::SlotHashes::id(),
         solana_stake_interface::stake_history::StakeHistory::id(),
     ];
-    debug_assert_eq!(sysvar_ids.len(), (start_idx..end_idx).len());
     for (idx, var) in (start_idx..end_idx).zip(sysvar_ids.into_iter().rev()) {
         let data = sysvars.sysvar_id_to_buffer(&var).as_deref();
         let data = data.unwrap_or_default();
@@ -319,19 +302,8 @@ pub(crate) fn create_abiv2_regions(invoke_context: &mut InvokeContext) -> Vec<Me
         ));
     }
 
-    // Indexes 271..335: Instruction data payload area
-    let start_idx = abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_DATA_BASE_ADDRESS);
-    debug_assert_eq!(v2_regions.len(), start_idx);
-    let end_idx = abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_DATA_END_ADDRESS);
     v2_regions.extend(transaction_context.instruction_payload_regions());
-    debug_assert_eq!(v2_regions.len(), end_idx);
-
-    // Indexes 335..399: Instruction accounts area
-    let start_idx = abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS);
-    debug_assert_eq!(v2_regions.len(), start_idx);
-    let end_idx = abiv2_region_index_from_vm_address(GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS);
     v2_regions.extend(transaction_context.instruction_accounts_regions());
-    debug_assert_eq!(v2_regions.len(), end_idx);
 
     v2_regions
 }
