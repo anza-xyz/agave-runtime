@@ -13,7 +13,7 @@ pub use self::{
     },
 };
 use {
-    crate::mem_ops::is_nonoverlapping,
+    crate::{cpi::SyscallInvokeSignedV2, mem_ops::is_nonoverlapping},
     solana_big_mod_exp::{
         BIG_MOD_EXP_MAX_BYTES, BIG_MOD_EXP_MIN_EXPONENT_LENGTH,
         BIG_MOD_EXP_MOD_REDUCTION_COMPLEXITY_FACTOR, BigModExpParams, big_mod_exp,
@@ -572,6 +572,13 @@ pub fn create_program_runtime_environment(
         enable_abiv2,
         "sol_transfer_lamports",
         SyscallTransferLamports,
+    )?;
+
+    register_feature_gated_function!(
+        result,
+        enable_abiv2,
+        "sol_invoke_signed_v2",
+        SyscallInvokeSignedV2,
     )?;
 
     Ok(ProgramRuntimeEnvironment::from(result))
