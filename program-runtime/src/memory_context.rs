@@ -323,8 +323,10 @@ mod test {
             vm::Config,
         },
         solana_transaction_context::{
-            MAX_ACCOUNTS_PER_TRANSACTION, instruction_accounts::InstructionAccount,
-            vm_addresses::GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS,
+            instruction_accounts::InstructionAccount,
+            vm_addresses::{
+                GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, abiv2_region_index_from_vm_address,
+            },
         },
     };
 
@@ -382,19 +384,18 @@ mod test {
             )
         };
 
-        let accounts_range = ((GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS >> 32) as usize)
-            ..((GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS >> 32) as usize)
-                .saturating_add(MAX_ACCOUNTS_PER_TRANSACTION);
+        let start = abiv2_region_index_from_vm_address(GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS);
 
         // IX 1
         tx_context.push().unwrap();
         memory_contexts
             .abi_v2_prepare_for_instruction(&tx_context)
             .unwrap();
+        let end = start.saturating_add(tx_context.accounts().len());
         let ix1_regions = memory_contexts
             .abiv2_mappings
             .get_regions()
-            .get(accounts_range.clone())
+            .get(start..end)
             .unwrap();
 
         let reg_zero = ix1_regions.first().unwrap();
@@ -432,10 +433,11 @@ mod test {
         memory_contexts
             .abi_v2_prepare_for_instruction(&tx_context)
             .unwrap();
+        let end = start.saturating_add(tx_context.accounts().len());
         let ix2_regions = memory_contexts
             .abiv2_mappings
             .get_regions()
-            .get(accounts_range.clone())
+            .get(start..end)
             .unwrap();
 
         let reg_zero = ix2_regions.first().unwrap();
@@ -473,10 +475,11 @@ mod test {
         memory_contexts
             .abi_v2_prepare_for_instruction(&tx_context)
             .unwrap();
+        let end = start.saturating_add(tx_context.accounts().len());
         let ix3_regions = memory_contexts
             .abiv2_mappings
             .get_regions()
-            .get(accounts_range.clone())
+            .get(start..end)
             .unwrap();
         let reg_zero = ix3_regions.first().unwrap();
         assert_eq!(reg_zero.access_violation_handler_payload, Some(0));
@@ -492,10 +495,11 @@ mod test {
         }
 
         // IX 3 again, but with region made writable
+        let end = start.saturating_add(tx_context.accounts().len());
         let first_account = memory_contexts
             .abiv2_mappings
             .get_regions_mut()
-            .get_mut(accounts_range.clone())
+            .get_mut(start..end)
             .unwrap()
             .first_mut()
             .unwrap();
@@ -506,10 +510,11 @@ mod test {
         memory_contexts
             .abi_v2_prepare_for_instruction(&tx_context)
             .unwrap();
+        let end = start.saturating_add(tx_context.accounts().len());
         let ix3_regions = memory_contexts
             .abiv2_mappings
             .get_regions()
-            .get(accounts_range.clone())
+            .get(start..end)
             .unwrap();
         let reg_zero = ix3_regions.first().unwrap();
         assert!(reg_zero.access_violation_handler_payload.is_none());

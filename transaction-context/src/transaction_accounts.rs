@@ -640,15 +640,8 @@ impl DerefMut for AccountRefMut<'_> {
 #[cfg(all(test, not(target_arch = "sbf"), not(target_arch = "bpf")))]
 mod tests {
     use {
-        crate::{
-            transaction_accounts::TransactionAccounts,
-            vm_addresses::{GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_REGION_SIZE},
-        },
-        solana_account::AccountSharedData,
-        solana_instruction::error::InstructionError,
-        solana_pubkey::Pubkey,
-        solana_sbpf::memory_region::{HostBuffer, MemoryRegion},
-        std::sync::Arc,
+        crate::transaction_accounts::TransactionAccounts, solana_account::AccountSharedData,
+        solana_instruction::error::InstructionError, solana_pubkey::Pubkey, std::sync::Arc,
     };
 
     #[test]
@@ -802,10 +795,6 @@ mod tests {
         let regions = tx_accounts.account_payload_regions().collect::<Vec<_>>();
 
         let r1 = regions.first().unwrap();
-        let region_host_ptr = |region: &MemoryRegion| match region.host_buffer() {
-            HostBuffer::Immutable(p) => p.cast(),
-            HostBuffer::Mutable(p) => p.cast(),
-        };
         unsafe {
             assert_eq!(
                 r1.vm_addr_range().start,
@@ -815,7 +804,7 @@ mod tests {
             );
             let payload = &(*tx_accounts.private_account_fields.first().unwrap().get()).payload;
             assert_eq!(r1.len(), payload.len());
-            assert_eq!(region_host_ptr(r1), payload.as_ptr());
+            assert_eq!(r1.host_buffer().ptr().cast(), payload.as_ptr());
         }
 
         let r2 = regions.get(1).unwrap();
@@ -828,23 +817,10 @@ mod tests {
             );
             let payload = &(*tx_accounts.private_account_fields.get(1).unwrap().get()).payload;
             assert_eq!(r2.len(), payload.len());
-            assert_eq!(region_host_ptr(r2), payload.as_ptr());
+            assert_eq!(r2.host_buffer().ptr().cast(), payload.as_ptr());
         }
 
-        // Regions for unavailable accounts are filled with non-null pointers, so it
-        // suffices to check if the length is zero.
-        let r3 = regions.get(2).unwrap();
-        assert_eq!(
-            r3.vm_addr_range().start,
-            GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(2))
-        );
-        assert_eq!(r3.len(), 0);
-
-        let r4 = regions.get(3).unwrap();
-        assert_eq!(
-            r4.vm_addr_range().start,
-            GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS.saturating_add(GUEST_REGION_SIZE.saturating_mul(3))
-        );
-        assert_eq!(r4.len(), 0);
+        // Placeholder region for unspecified accounts are populated when memory mapping is created.
+        assert_eq!(regions.len(), 2);
     }
 }

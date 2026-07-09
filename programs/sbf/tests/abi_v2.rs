@@ -640,6 +640,33 @@ fn test_sol_transfer_lamports() {
 }
 
 #[test]
+fn test_sysvar_access() {
+    let GenesisConfigInfo {
+        genesis_config,
+        mint_keypair,
+        ..
+    } = create_genesis_config(50);
+    let (bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+    let mut bank_client = BankClient::new_shared(bank.clone());
+    let authority_keypair = Keypair::new();
+    let (bank, program_id) = load_upgradeable_program_and_advance_slot(
+        &mut bank_client,
+        &bank_forks,
+        &mint_keypair,
+        &authority_keypair,
+        "solana_sbf_rust_abi_v2_memory",
+    );
+    let data = [0x0c];
+    let ix_1 = Instruction::new_with_bytes(program_id, &data, vec![]);
+    let message = Message::new(&[ix_1], Some(&mint_keypair.pubkey()));
+    let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
+
+    println!("{:?}", logs);
+    assert!(logs.last().unwrap().contains("success"));
+}
+
+#[test]
 fn test_resize_cpi_scratchpad() {
     let GenesisConfigInfo {
         genesis_config,
