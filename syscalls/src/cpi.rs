@@ -87,7 +87,7 @@ impl SyscallInvokeSigned for SyscallInvokeSignedC {
 }
 
 declare_builtin_function!(
-    /// Cross-program invocation called for ABIv2
+    /// Cross-program invocation called from ABIv2
     SyscallInvokeSignedV2,
     fn rust(
         invoke_context: &mut InvokeContext<'_, '_>,
@@ -102,8 +102,8 @@ declare_builtin_function!(
         invoke_context.compute_meter.consume_checked(compute_cost.abi_v2_cpi_base)?;
 
         // Configure instruction frame
-        let program_id_converted = u16::try_from(program_idx_in_tx).map_err(|_| InstructionError::MissingAccount)?;
-        invoke_context.transaction_context.build_abi_v2_frame(program_id_converted)?;
+        let callee_program_index_in_tx = u16::try_from(program_idx_in_tx).map_err(|_| InstructionError::MissingAccount)?;
+        invoke_context.transaction_context.build_abi_v2_frame(callee_program_index_in_tx)?;
 
         // This check also verifies that the program account is in the transaction
         let caller_program_id = invoke_context.transaction_context.get_current_instruction_context()?.get_program_key()?;
