@@ -291,7 +291,7 @@ pub(crate) fn create_abiv2_regions(invoke_context: &mut InvokeContext) -> Vec<Me
         solana_last_restart_slot::LastRestartSlot::id(),
         solana_rent::Rent::id(),
         solana_slot_hashes::SlotHashes::id(),
-        solana_stake_interface::stake_history::StakeHistory::id(),
+        solana_stake_history::StakeHistory::id(),
     ];
     for (idx, var) in (start_idx..end_idx).zip(sysvar_ids.into_iter().rev()) {
         let data = sysvars.sysvar_id_to_buffer(&var).as_deref();
