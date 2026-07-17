@@ -387,8 +387,7 @@ unsafe fn test_access_sysvars() {
     let stake_history_addr = end - vm_addresses::from_index(7) as usize;
     let stake_history = core::slice::from_raw_parts(stake_history_addr as _, 0x1_0000_0000);
     let stake_history =
-        bincode::deserialize::<solana_stake_interface::stake_history::StakeHistory>(stake_history)
-            .unwrap();
+        bincode::deserialize::<solana_stake_history::StakeHistory>(stake_history).unwrap();
     sol_log(format!("{:?}", stake_history).as_bytes());
 }
 
