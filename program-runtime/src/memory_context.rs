@@ -170,6 +170,10 @@ impl MemoryContexts {
         Ok(())
     }
 
+    /// Returns if an ABIv2 instruction is the parent of this one
+    ///
+    /// This function can only be called after `MemoryContexts::push` was invoked,
+    /// and the placeholder has been replaced by either an ABIv1 or v2 memory context.
     pub fn is_parent_abi_v2_instruction(&self) -> Result<bool, InstructionError> {
         Ok(matches!(
             self.contexts
@@ -264,6 +268,9 @@ impl MemoryContexts {
         transaction_context: &mut TransactionContext,
         instruction_index: usize,
     ) {
+        // ABIv2 regions are lazily initialized. If the transaction has not yet executed an ABIv2
+        // instruction, the regions do not exist and do not need to be prepared. The creation,
+        // when it happens in `create_abiv2_regions` will already have the updated values.
         if !self.abi_v2_regions_exist() {
             return;
         }
