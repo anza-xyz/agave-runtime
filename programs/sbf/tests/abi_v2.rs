@@ -919,3 +919,8 @@ fn test_three_level_cpi() {
     std::eprintln!("logs: {:?}", logs);
     assert!(logs.last().unwrap().contains("success"));
 }
+
+#[test]
+fn testing_ci() {
+    std::println!("Heya!");
+}
