@@ -2,7 +2,8 @@
 use {
     crate::{
         DropOnBailOut, IndexOfAccount, MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION,
-        MAX_ACCOUNT_DATA_LEN, MAX_ACCOUNTS_PER_TRANSACTION, MAX_INSTRUCTION_TRACE_LENGTH,
+        MAX_ACCOUNT_DATA_LEN, MAX_ACCOUNTS_PER_INSTRUCTION, MAX_ACCOUNTS_PER_TRANSACTION,
+        MAX_INSTRUCTION_TRACE_LENGTH,
         instruction::{InstructionContext, InstructionFrame},
         transaction_accounts::{KeyedAccountSharedData, TransactionAccounts},
         vm_addresses::{
@@ -972,7 +973,9 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 const _: () = assert!(SZ > 0);
                 let number_of_accounts = new_len.saturating_div(SZ);
 
-                if !new_len.is_multiple_of(SZ) {
+                if !new_len.is_multiple_of(SZ)
+                    || new_len.saturating_div(SZ) > MAX_ACCOUNTS_PER_INSTRUCTION as u64
+                {
                     return Err(InstructionError::InvalidArgument);
                 }
 
@@ -1051,6 +1054,11 @@ impl<'ix_data> TransactionContext<'ix_data> {
             .instruction_accounts
             .last_mut()
             .ok_or(InstructionError::CallDepth)?;
+
+        if ix_accounts.len() > MAX_ACCOUNTS_PER_INSTRUCTION {
+            return Err(InstructionError::MaxAccountsExceeded);
+        }
+
         // Deduplicate the instruction accounts the caller wrote in the CPI scratchpad
         let dedup_map = Self::deduplicate_accounts(number_of_tx_accounts, ix_accounts)?;
         *self
@@ -1115,7 +1123,7 @@ impl From<TransactionContext<'_>> for ExecutionRecord {
 
 #[cfg(all(test, not(target_arch = "sbf"), not(target_arch = "bpf")))]
 mod tests {
-    use {super::*, std::sync::Arc};
+    use {super::*, solana_sbpf::ebpf::MM_REGION_SIZE, std::sync::Arc};
 
     #[test]
     fn test_instructions_sysvar_store_index_checked() {
@@ -2334,5 +2342,46 @@ mod tests {
 
         let result = tx_context.build_abi_v2_frame(1);
         assert_eq!(result.err().unwrap(), InstructionError::MissingAccount);
+
+        // Let's try 256 accounts
+        {
+            let ix_accounts = tx_context.instruction_accounts.last_mut().unwrap();
+            ix_accounts.pop();
+            ix_accounts.resize_with(MAX_ACCOUNTS_PER_INSTRUCTION.saturating_add(1), || {
+                InstructionAccount::new(0, false, true)
+            });
+        }
+
+        let result = tx_context.build_abi_v2_frame(1);
+        assert_eq!(result.err().unwrap(), InstructionError::MaxAccountsExceeded);
+    }
+
+    #[test]
+    fn test_resize_fails_for_256() {
+        let program = Pubkey::new_unique();
+        let tx_accounts = vec![(Pubkey::new_unique(), AccountSharedData::new(0, 8, &program)); 3];
+        let mut transaction_context =
+            TransactionContext::new(tx_accounts, Rent::default(), 8, 8, 1);
+
+        transaction_context
+            .configure_instruction_at_index(
+                0,
+                0,
+                vec![InstructionAccount::new(1, false, true)],
+                vec![u8::MAX; 3],
+                Cow::Owned(Vec::new()),
+                None,
+            )
+            .unwrap();
+
+        let region = MemoryRegion::new_empty(
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS.saturating_add(MM_REGION_SIZE),
+        );
+        let result = transaction_context.resize_region(
+            &region,
+            size_of::<InstructionAccount>().saturating_mul(256) as u64,
+        );
+
+        assert_eq!(result, Err(InstructionError::InvalidArgument));
     }
 }
