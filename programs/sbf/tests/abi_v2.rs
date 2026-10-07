@@ -919,3 +919,74 @@ fn test_three_level_cpi() {
     std::eprintln!("logs: {:?}", logs);
     assert!(logs.last().unwrap().contains("success"));
 }
+
+#[test]
+fn test_resize_more_than_allowed() {
+    let GenesisConfigInfo {
+        genesis_config,
+        mint_keypair,
+        ..
+    } = create_genesis_config(50);
+
+    let (bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+    let mut bank_client = BankClient::new_shared(bank.clone());
+    let authority_keypair = Keypair::new();
+
+    let (_, v1_program_id) = load_upgradeable_program_and_advance_slot(
+        &mut bank_client,
+        &bank_forks,
+        &mint_keypair,
+        &authority_keypair,
+        "solana_sbf_rust_abi_v1_v2_cpi",
+    );
+
+    let (bank, v2_program_id) = load_upgradeable_program_and_advance_slot(
+        &mut bank_client,
+        &bank_forks,
+        &mint_keypair,
+        &authority_keypair,
+        "solana_sbf_rust_abi_v2_cpi",
+    );
+
+    let acc_1_key = Pubkey::new_unique();
+    let acc_1 = AccountSharedData::create_from_existing_shared_data(
+        10,
+        vec![4, 5, 6].into(),
+        v1_program_id,
+        false,
+        64,
+    );
+    bank.store_account(&acc_1_key, &acc_1);
+
+    let acc_2_key = Pubkey::new_unique();
+    let acc_2 = AccountSharedData::create_from_existing_shared_data(
+        40,
+        vec![].into(),
+        v2_program_id,
+        false,
+        64,
+    );
+    bank.store_account(&acc_2_key, &acc_2);
+
+    let metas_for_ix = vec![
+        AccountMeta::new_readonly(v2_program_id, false),
+        AccountMeta::new(acc_1_key, false),
+        AccountMeta::new(acc_2_key, false),
+    ];
+
+    let data = [2u8];
+    let ix_1 = Instruction::new_with_bytes(v1_program_id, &data, metas_for_ix);
+    let message = Message::new(&[ix_1], Some(&mint_keypair.pubkey()));
+    let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
+
+    std::eprintln!("logs: {:?}", logs);
+    assert!(logs.iter().any(|item| {
+        item.contains("Account data size realloc limited to 10240 in inner instructions")
+    }));
+    assert!(
+        logs.last()
+            .unwrap()
+            .contains("Failed to reallocate account data")
+    );
+}

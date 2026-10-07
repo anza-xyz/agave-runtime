@@ -58,16 +58,37 @@ fn cpi_into_v2(accounts: &[AccountInfo]) {
     );
 }
 
+fn cpi_into_v2_for_resize(accounts: &[AccountInfo]) {
+    // Prepare CPI
+    let cpi_accounts = vec![
+        accounts.get(1).unwrap().clone(),
+        accounts.get(2).unwrap().clone(),
+    ];
+
+    let program_id = accounts.first().unwrap().key;
+    let data = b"Going to resize";
+    let mut cpi_data = vec![5u8; data.len().saturating_add(1)];
+    cpi_data.get_mut(1..).unwrap().copy_from_slice(data);
+
+    let metas = vec![
+        AccountMeta::new_readonly(*accounts.get(1).unwrap().key, false),
+        AccountMeta::new(*accounts.get(2).unwrap().key, false),
+    ];
+
+    let instruction = Instruction::new_with_bytes(*program_id, &cpi_data, metas);
+    invoke(&instruction, &cpi_accounts).unwrap();
+}
+
 // This function is called from an ABIv2 program
 pub fn entry(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     // Check if my program ID is right
     let case = data[0];
-    if case == 0 {
-        return_to_abi_v2(program_id, accounts, data);
-    } else if case == 1 {
-        cpi_into_v2(accounts);
-    } else {
-        panic!("Unexpected case");
+
+    match case {
+        0 => return_to_abi_v2(program_id, accounts, data),
+        1 => cpi_into_v2(accounts),
+        2 => cpi_into_v2_for_resize(accounts),
+        _ => panic!("Unexpected case"),
     }
 
     Ok(())

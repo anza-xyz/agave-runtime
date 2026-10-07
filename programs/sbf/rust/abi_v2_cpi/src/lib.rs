@@ -350,6 +350,21 @@ unsafe fn second_level_cpi(
         .copy_from_slice(return_to_write);
 }
 
+fn resize_more_than_limit(
+    ix_accounts: &[InstructionAccount],
+    tx_accounts_metadata: &mut [AccountSharedFields],
+) {
+    let second_account_idx = ix_accounts.get(1).unwrap().index_in_transaction;
+    let tx_account = tx_accounts_metadata
+        .get_mut(second_account_idx as usize)
+        .unwrap();
+
+    set_buffer_length(
+        tx_account.payload.ptr(),
+        1_024u64.saturating_mul(10).saturating_add(5),
+    );
+}
+
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn entrypoint(
@@ -387,6 +402,7 @@ pub unsafe extern "C" fn entrypoint(
         ),
         3 => perform_checks_inside_cpi(tx_frame, current_ix),
         4 => cpi_into_v1_and_then_v2(tx_frame, tx_accounts_metadata, ix_accounts),
+        5 => resize_more_than_limit(ix_accounts, tx_accounts_metadata),
         _ => panic!("Unexpected case"),
     }
 
