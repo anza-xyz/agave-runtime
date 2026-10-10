@@ -22,7 +22,9 @@ use {
     std::{borrow::Cow, cell::Cell, rc::Rc},
 };
 use {
-    crate::{instruction_accounts::InstructionAccount, vm_slice::VmSlice},
+    crate::{
+        MAX_INSTRUCTION_DATA_LEN, instruction_accounts::InstructionAccount, vm_slice::VmSlice,
+    },
     solana_pubkey::Pubkey,
 };
 
@@ -923,6 +925,10 @@ impl<'ix_data> TransactionContext<'ix_data> {
                 if !self.is_upcoming_cpi_ix_index(ix_idx) {
                     // Only the last region is supposed to be resized, since it is going to be
                     // used for CPI
+                    return Err(InstructionError::InvalidArgument);
+                }
+
+                if new_len > MAX_INSTRUCTION_DATA_LEN as u64 {
                     return Err(InstructionError::InvalidArgument);
                 }
 
@@ -2377,10 +2383,49 @@ mod tests {
         let region = MemoryRegion::new_empty(
             GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS.saturating_add(MM_REGION_SIZE),
         );
+
+        let result = transaction_context.resize_region(
+            &region,
+            size_of::<InstructionAccount>().saturating_mul(255) as u64,
+        );
+
+        assert!(result.is_ok());
+
         let result = transaction_context.resize_region(
             &region,
             size_of::<InstructionAccount>().saturating_mul(256) as u64,
         );
+
+        assert_eq!(result, Err(InstructionError::InvalidArgument));
+    }
+
+    #[test]
+    fn test_resize_fails_for_max_instruction_data_len() {
+        let program = Pubkey::new_unique();
+        let tx_accounts = vec![(Pubkey::new_unique(), AccountSharedData::new(0, 8, &program)); 3];
+        let mut transaction_context =
+            TransactionContext::new(tx_accounts, Rent::default(), 8, 8, 1);
+
+        transaction_context
+            .configure_instruction_at_index(
+                0,
+                0,
+                vec![InstructionAccount::new(1, false, true)],
+                vec![u8::MAX; 3],
+                Cow::Owned(Vec::new()),
+                None,
+            )
+            .unwrap();
+
+        let region = MemoryRegion::new_empty(
+            GUEST_INSTRUCTION_DATA_BASE_ADDRESS.saturating_add(MM_REGION_SIZE),
+        );
+        let result = transaction_context.resize_region(&region, MAX_INSTRUCTION_DATA_LEN as u64);
+
+        assert!(result.is_ok());
+
+        let result = transaction_context
+            .resize_region(&region, MAX_INSTRUCTION_DATA_LEN.saturating_add(10) as u64);
 
         assert_eq!(result, Err(InstructionError::InvalidArgument));
     }
