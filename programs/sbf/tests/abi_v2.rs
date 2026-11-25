@@ -153,7 +153,7 @@ fn regions_sanity_test() {
 
     let result = bank_client
         .send_and_confirm_message(&[&mint_keypair, &acc_1_keypair, &acc_2_keypair], message);
-    std::eprintln!("result: {:?}", result);
+    std::eprintln!("result: {result:?}");
     assert!(result.is_ok());
 }
 
@@ -211,11 +211,10 @@ fn test_access_invalid_regions() {
 
         let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
         let last_line = logs.last().unwrap();
-        std::println!("logs: {:?}", logs);
-        // assert_eq!(last_line, &format!("Access violation in unknown section at address 0x{:x}00000000", i));
+        std::eprintln!("logs: {logs:?}");
         assert!(last_line.contains("Access violation"));
         assert!(
-            last_line.contains(&format!("at address 0x{:x}0000000", area)),
+            last_line.contains(&format!("at address 0x{area:x}0000000")),
             "{last_line}"
         );
     };
@@ -666,7 +665,7 @@ fn test_sysvar_access() {
     let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
     let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
 
-    println!("{:?}", logs);
+    std::eprintln!("{logs:?}");
     assert!(logs.last().unwrap().contains("success"));
 }
 
@@ -845,7 +844,7 @@ fn test_cpi_into_v1() {
     let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
     let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
 
-    std::eprintln!("logs: {:?}", logs);
+    std::eprintln!("logs: {logs:?}");
     assert!(logs.last().unwrap().contains("success"));
 }
 
@@ -918,7 +917,7 @@ fn test_three_level_cpi() {
     let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
     let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
 
-    std::eprintln!("logs: {:?}", logs);
+    std::eprintln!("logs: {logs:?}");
     assert!(logs.last().unwrap().contains("success"));
 }
 
@@ -982,7 +981,7 @@ fn test_resize_more_than_allowed() {
     let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
     let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
 
-    std::eprintln!("logs: {:?}", logs);
+    std::eprintln!("logs: {logs:?}");
     assert!(logs.iter().any(|item| {
         item.contains("Account data size realloc limited to 10240 in inner instructions")
     }));

@@ -1106,8 +1106,8 @@ async fn test_cli_program_deploy_sbpf_v0(disable_sbpf_v0_v1_v2_deployment_enable
         expect_command_failure(
             &config,
             "SBPFv0 deployment is disabled",
-            "program targets SBPF v0, which this CLI does not have enabled (enabled: v3–v3). \
-             Rebuild the program targeting v3.",
+            "program targets SBPF v0, which this CLI does not have enabled (enabled: v3–v4). \
+             Rebuild the program targeting v4.",
         )
         .await;
 

@@ -23,5 +23,5 @@ solana-pubkey = { workspace = true }
 solana-rent = { workspace = true, features = ["sysvar", "wincode"] }
 solana-slot-hashes = { workspace = true, features = ["wincode"] }
 solana-stake-history = { workspace = true, features = ["serde"] }
-solana-transaction-context = { workspace = true, features = ["agave-unstable-api"] }
+solana-transaction-context = { workspace = true, features = ["agave-unstable-api", "solana-program"] }
 wincode = { workspace = true }

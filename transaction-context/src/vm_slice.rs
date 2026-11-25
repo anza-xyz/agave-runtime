@@ -54,7 +54,8 @@ impl<T> VmSlice<T> {
     #[cfg(any(
         target_arch = "bpf",
         target_arch = "sbf",
-        feature = "dummy-for-ci-check"
+        feature = "dummy-for-ci-check",
+        feature = "solana-program",
     ))]
     pub fn as_slice(&self) -> &[T] {
         unsafe { core::slice::from_raw_parts(self.ptr as *const T, self.len as usize) }
@@ -63,7 +64,8 @@ impl<T> VmSlice<T> {
     #[cfg(any(
         target_arch = "bpf",
         target_arch = "sbf",
-        feature = "dummy-for-ci-check"
+        feature = "dummy-for-ci-check",
+        feature = "solana-program"
     ))]
     pub fn as_slice_mut(&mut self) -> &mut [T] {
         unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut T, self.len as usize) }
